@@ -16,7 +16,7 @@
 
 This directory documents the datasets used in the Credit Card Fraud Detection research. The original dataset is obtained from the [European Credit Card Fraud Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud) dataset on Kaggle.
 
-Due to the large file sizes, the original, preprocessed, and scenario-specific datasets are stored externally in Google Drive rather than directly in this GitHub repository.
+The original, preprocessed, and scenario-specific datasets are stored externally in Google Drive due to their large file sizes and are not included directly in this GitHub repository.
 
 ## Dataset Structure
 
@@ -24,6 +24,9 @@ The following structure represents the dataset organization in Google Drive:
 
 ```text
 dataset/
+│
+├── raw/
+│   └── creditcard.csv
 │
 ├── preprocessed/
 │   ├── X_train.csv
@@ -64,6 +67,7 @@ dataset/
 
 | Directory | Description |
 |---|---|
+| `raw/` | Original dataset downloaded from Kaggle (`creditcard.csv`). |
 | `preprocessed/` | Dataset after initial preprocessing and train-validation-test splitting. |
 | `scenarios/S1_Original/` | Original preprocessed dataset without additional augmentation. |
 | `scenarios/S2_Augmentation/` | Dataset prepared using the augmentation approach. |
@@ -87,6 +91,7 @@ Each scenario contains separate feature (`X`) and target (`y`) files for trainin
 - Dataset splitting uses stratification to preserve class proportions.
 - Data augmentation or resampling is applied only to training data to prevent data leakage.
 - Validation and testing data retain their original class distribution for model evaluation.
+- The raw dataset is retained separately from the processed datasets.
 
 ## Data Source
 
@@ -96,10 +101,15 @@ Source: [Kaggle Dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud
 
 ## Dataset Access
 
+All dataset files, including the original dataset, preprocessed data, and scenario-specific datasets, are available through the Google Drive folder below.
+
 <p align="center">
   <a href="https://drive.google.com/drive/folders/1yynwraXJnBuL88eKJywPiwpXzJkP4lLt?usp=sharing">
     <img src="https://img.shields.io/badge/Google%20Drive-Access%20Dataset-34A853?style=for-the-badge&logo=googledrive&logoColor=white" />
   </a>
 </p>
 
-**Note:** Dataset files are not included in this GitHub repository due to their large storage requirements. Access the Google Drive folder above to download the original, preprocessed, and scenario-specific datasets.
+**Direct Link:**  
+[Access Dataset – Google Drive](https://drive.google.com/drive/folders/1yynwraXJnBuL88eKJywPiwpXzJkP4lLt?usp=sharing)
+
+**Note:** Dataset files are stored externally and are not included in this GitHub repository due to their large storage requirements. Access the Google Drive folder to download the files before executing the corresponding notebooks.
