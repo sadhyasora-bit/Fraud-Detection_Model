@@ -1,58 +1,64 @@
- <p align="center">
-  <img src="https://img.shields.io/badge/Dataset-Credit%20Card%20Fraud-blue?style=for-the-badge" alt="Dataset"/>
-  <img src="https://img.shields.io/badge/Source-Kaggle-20BEFF?style=for-the-badge&logo=kaggle&logoColor=white" alt="Kaggle"/>
+<p align="center">
+  <img src="https://img.shields.io/badge/DATASET-CREDIT%20CARD%20FRAUD-blue?style=for-the-badge" />
+  <img src="https://img.shields.io/badge/Source-Kaggle-20BEFF?style=for-the-badge&logo=kaggle&logoColor=white" />
 </p>
 
-<h1 align="center">Credit Card Fraud Detection Dataset</h1>
+<h1 align="center">Dataset</h1>
 
 <p align="center">
-  Dataset used for credit card fraud detection research.
+  Dataset management for Credit Card Fraud Detection research.
 </p>
 
 ---
 
 ## About Dataset
 
-This directory contains the dataset used in the Credit Card Fraud Detection research.
+This directory contains the datasets used in the credit card fraud detection research. The dataset is obtained from the [European Credit Card Fraud Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud) dataset on Kaggle.
 
-The original dataset is obtained from Kaggle:
-
-**Source:** [Credit Card Fraud Detection – Kaggle](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
-
-## Dataset Information
-
-| Description | Value |
-|---|---|
-| Total Transactions | 284,807 |
-| Input Features | 30 |
-| Target Variable | Class |
-| Class 0 | Non-Fraud |
-| Class 1 | Fraud |
-
-## Directory Structure
+## Dataset Structure
 
 ```text
 dataset/
-├── README.md
-└── split/
-    ├── X_train.csv
-    ├── X_val.csv
-    ├── X_test.csv
-    ├── y_train.csv
-    ├── y_val.csv
-    └── y_test.csv
+│
+├── raw/
+│   └── creditcard.csv
+│
+├── preprocessed/
+│   ├── X_train.csv
+│   ├── y_train.csv
+│   ├── X_val.csv
+│   ├── y_val.csv
+│   ├── X_test.csv
+│   └── y_test.csv
+│
+└── balanced/
+    ├── S2/
+    └── S3/
 ```
 
-## Data Description
+## Directory Description
 
-The `split/` directory contains the preprocessed dataset divided into three subsets:
+| Directory | Description |
+|---|---|
+| `raw/` | Original dataset obtained from Kaggle. |
+| `preprocessed/` | Dataset after preprocessing and train-validation-test splitting. |
+| `balanced/S2/` | Balanced training data for Scenario 2. |
+| `balanced/S3/` | Balanced training data for Scenario 3. |
 
-- **Training:** Used for model training.
-- **Validation:** Used for model validation and parameter selection.
-- **Testing:** Used for final model evaluation.
+## Dataset Information
 
-Feature (`X`) and target (`y`) data are stored separately.
+| Attribute | Description |
+|---|---|
+| Total Transactions | 284,807 |
+| Input Features | 30 |
+| Target Variable | `Class` |
+| Class 0 | Non-Fraud |
+| Class 1 | Fraud |
 
-## Note
+## Data Source
 
-The original CSV dataset is not included in this repository due to its large file size. It can be downloaded directly from the Kaggle source provided above.
+**European Credit Card Fraud Detection**
+
+Source: [Kaggle Dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
+
+**Note:** The original dataset (`creditcard.csv`) is not included in the GitHub repository due to its large file size. It can be downloaded directly from the original Kaggle source.
