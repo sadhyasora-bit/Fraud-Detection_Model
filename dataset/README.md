@@ -20,9 +20,6 @@ This directory contains the datasets used in the credit card fraud detection res
 ```text
 dataset/
 │
-├── raw/
-│   └── creditcard.csv
-│
 ├── preprocessed/
 │   ├── X_train.csv
 │   ├── y_train.csv
