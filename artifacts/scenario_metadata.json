@@ -1,0 +1,89 @@
+{
+    "dataset": "European Credit Card Fraud Detection",
+    "random_state": 42,
+    "base_split": {
+        "training": 0.7,
+        "validation": 0.15,
+        "testing": 0.15
+    },
+    "target": "Class",
+    "target_mapping": {
+        "0": "Non-Fraud",
+        "1": "Fraud"
+    },
+    "features": [
+        "Time",
+        "V1",
+        "V2",
+        "V3",
+        "V4",
+        "V5",
+        "V6",
+        "V7",
+        "V8",
+        "V9",
+        "V10",
+        "V11",
+        "V12",
+        "V13",
+        "V14",
+        "V15",
+        "V16",
+        "V17",
+        "V18",
+        "V19",
+        "V20",
+        "V21",
+        "V22",
+        "V23",
+        "V24",
+        "V25",
+        "V26",
+        "V27",
+        "V28",
+        "Amount"
+    ],
+    "scenarios": {
+        "S1": {
+            "name": "Original Dataset",
+            "scaling": "RobustScaler",
+            "log1p_amount": false,
+            "smote": false,
+            "training_distribution": {
+                "0": 198277,
+                "1": 331
+            },
+            "scaler_artifact": "scaler_s1_s2.joblib"
+        },
+        "S2": {
+            "name": "Augmentation Dataset",
+            "scaling": "RobustScaler",
+            "log1p_amount": false,
+            "smote": true,
+            "smote_applied_to": "Training only",
+            "training_distribution": {
+                "0": 198277,
+                "1": 198277
+            },
+            "scaler_artifact": "scaler_s1_s2.joblib"
+        },
+        "S3": {
+            "name": "Preprocessing and Augmentation Dataset",
+            "feature_transformation": {
+                "Amount": "log1p"
+            },
+            "scaling": "RobustScaler",
+            "smote": true,
+            "smote_applied_to": "Training only",
+            "training_distribution": {
+                "0": 198277,
+                "1": 198277
+            },
+            "scaler_artifact": "scaler_s3.joblib"
+        }
+    },
+    "validation_testing": {
+        "smote_applied": false,
+        "class_distribution_preserved": true
+    }
+}
