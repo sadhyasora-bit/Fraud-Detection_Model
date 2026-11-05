@@ -1,0 +1,46 @@
+{
+  "dataset_path": "data/creditcard.csv",
+  "column_mapping": {
+    "transaction_id": null,
+    "time": "Time",
+    "amount": "Amount",
+    "target": "Class"
+  },
+  "positive_class": "1",
+  "training_policy": {
+    "source_csv_is_preserved": true,
+    "remove_exact_duplicate_rows_from_derived_research_data": true,
+    "preserve_raw_dashboard_counts": true,
+    "split_strategy": "stratified_random",
+    "random_state": 42,
+    "target_split_proportions": {
+      "train": 0.7,
+      "validation": 0.15,
+      "test": 0.15
+    },
+    "include_time_as_feature": true,
+    "exclude_target_and_mapped_transaction_id_from_features": true,
+    "scenarios": {
+      "S1": {
+        "scaler": "RobustScaler",
+        "resampling": "none"
+      },
+      "S2": {
+        "scaler": "RobustScaler",
+        "resampling": "SMOTE on training split only",
+        "smote_random_state": 42,
+        "smote_k_neighbors": 5
+      },
+      "S3": {
+        "amount_transform": "log1p",
+        "scaler": "RobustScaler",
+        "resampling": "SMOTE on training split only",
+        "smote_random_state": 42,
+        "smote_k_neighbors": 5
+      }
+    },
+    "scaler_fit_scope": "training_split_only",
+    "validation_test_resampling": "none",
+    "prepared_data_path": "data/preprocessed"
+  }
+}
