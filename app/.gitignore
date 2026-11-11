@@ -1,3 +1,12 @@
-﻿/data/*.csv
+﻿
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local audit logs
+data/logs/
+
+# Dataset files
+/data/*.csv
 /data/preprocessed/**/*.csv
 /data/preprocessed/**/*.joblib
