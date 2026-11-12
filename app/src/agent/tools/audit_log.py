@@ -1,8 +1,10 @@
+
 """Audit Log Tool for CreditGuard AI."""
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -18,6 +20,7 @@ def log_agent_event(
     input_data: dict,
     output_data: dict,
     status: str = "success",
+    run_id: Optional[str] = None,
 ) -> dict:
     """Record an agent event into a JSONL audit log."""
 
@@ -26,11 +29,18 @@ def log_agent_event(
         isinstance(tool_name, str) and tool_name.strip(),
         isinstance(input_data, dict),
         isinstance(output_data, dict),
+        isinstance(status, str) and status.strip(),
     ]):
         raise ValueError("Invalid audit log input.")
 
+    if run_id is not None and (
+        not isinstance(run_id, str) or not run_id.strip()
+    ):
+        raise ValueError("run_id must be a non-empty string or None.")
+
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
         "event_type": event_type,
         "tool_name": tool_name,
         "status": status,
@@ -45,7 +55,11 @@ def log_agent_event(
 
     with AUDIT_LOG_PATH.open("a", encoding="utf-8") as file:
         file.write(
-            json.dumps(record, ensure_ascii=False, default=str) + "\n"
+            json.dumps(
+                record,
+                ensure_ascii=False,
+                default=str,
+            ) + "\n"
         )
 
     return {
@@ -54,4 +68,5 @@ def log_agent_event(
         "log_file": str(AUDIT_LOG_PATH),
         "recorded_event": event_type,
         "recorded_tool": tool_name,
+        "run_id": run_id,
     }

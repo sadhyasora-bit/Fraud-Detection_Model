@@ -63,7 +63,7 @@ def run_risk_assessment(
         "tool": "risk_assessment",
         "status": "success",
         "fraud_probability": probability,
-        "threshold_exceeded": threshold_result["exceeds_threshold"],
+        "classification_threshold_exceeded": threshold_result["exceeds_threshold"],
         "review_threshold": review_threshold,
         "escalate_threshold": escalate_threshold,
         "transaction_amount": transaction_result[
