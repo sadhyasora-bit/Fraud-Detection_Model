@@ -213,11 +213,71 @@ if not cases:
     st.stop()
 
 
+
+# --------------------------------------------------
+# Investigation overview
+# --------------------------------------------------
+
+st.subheader("1. Investigation Overview")
+
+# All completed Agent analyses
+total_analyses = len(cases)
+
+allow_analyses = sum(
+    case.get("recommended_action") == "ALLOW"
+    for case in cases
+)
+
+review_analyses = sum(
+    case.get("recommended_action") == "REVIEW"
+    for case in cases
+)
+
+escalated_analyses = sum(
+    case.get("recommended_action") == "ESCALATE"
+    for case in cases
+)
+
+# Risk distribution across all completed analyses
+low_risk = sum(
+    case.get("risk_level") == "LOW"
+    for case in cases
+)
+
+medium_risk = sum(
+    case.get("risk_level") == "MEDIUM"
+    for case in cases
+)
+
+high_risk = sum(
+    case.get("risk_level") == "HIGH"
+    for case in cases
+)
+
+# Overview metrics
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric("Total Analyses", total_analyses)
+col2.metric("ALLOW", allow_analyses)
+col3.metric("REVIEW", review_analyses)
+col4.metric("ESCALATE", escalated_analyses)
+
+st.caption("Risk Distribution")
+
+risk_col1, risk_col2, risk_col3 = st.columns(3)
+
+risk_col1.metric("Low Risk", low_risk)
+risk_col2.metric("Medium Risk", medium_risk)
+risk_col3.metric("High Risk", high_risk)
+
+
 # --------------------------------------------------
 # Investigation queue
 # --------------------------------------------------
 
-st.subheader("1. Investigation Queue")
+st.divider()
+
+st.subheader("2. Investigation Queue")
 
 investigation_cases = [
     case
@@ -226,20 +286,22 @@ investigation_cases = [
 ]
 
 total_cases = len(investigation_cases)
+
 review_cases = sum(
-    case["recommended_action"] == "REVIEW"
+    case.get("recommended_action") == "REVIEW"
     for case in investigation_cases
 )
+
 escalated_cases = sum(
-    case["recommended_action"] == "ESCALATE"
+    case.get("recommended_action") == "ESCALATE"
     for case in investigation_cases
 )
 
-col1, col2, col3 = st.columns(3)
+queue_col1, queue_col2, queue_col3 = st.columns(3)
 
-col1.metric("Investigation Cases", total_cases)
-col2.metric("Review", review_cases)
-col3.metric("Escalated", escalated_cases)
+queue_col1.metric("Investigation Cases", total_cases)
+queue_col2.metric("Review", review_cases)
+queue_col3.metric("Escalated", escalated_cases)
 
 
 # --------------------------------------------------
