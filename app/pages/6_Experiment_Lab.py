@@ -48,7 +48,9 @@ if run_comparison:
         from xgboost import XGBClassifier
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import (
+            accuracy_score,
             average_precision_score,
+            confusion_matrix,
             f1_score,
             precision_score,
             recall_score,
@@ -102,7 +104,34 @@ if run_comparison:
                     "precision_at_050": float(precision_score(splits.y_val, predictions_at_default, zero_division=0)),
                     "recall_at_050": float(recall_score(splits.y_val, predictions_at_default, zero_division=0)),
                     "f1_at_050": float(f1_score(splits.y_val, predictions_at_default, zero_division=0)),
+                    "accuracy_at_050": float(accuracy_score(splits.y_val, predictions_at_default)),
+                    "specificity_at_050": float(
+                        confusion_matrix(splits.y_val, predictions_at_default, labels=[0, 1])[0, 0]
+                        / max(1, confusion_matrix(splits.y_val, predictions_at_default, labels=[0, 1])[0].sum())
+                    ),
+                    "class_metrics": [],
                 }
+                for class_label, class_name in ((0, "Non-Fraud"), (1, "Fraud")):
+                    y_class = (splits.y_val == class_label).astype("int8")
+                    class_probabilities = probabilities if class_label == 1 else 1.0 - probabilities
+                    class_predictions = (class_probabilities >= 0.50).astype("int8")
+                    tn, fp, fn, tp = confusion_matrix(y_class, class_predictions, labels=[0, 1]).ravel()
+                    values = comparison[name]
+                    values["class_metrics"].append({
+                        "class_label": class_label,
+                        "class_name": class_name,
+                        "tp": int(tp),
+                        "tn": int(tn),
+                        "fp": int(fp),
+                        "fn": int(fn),
+                        "precision": float(precision_score(y_class, class_predictions, zero_division=0)),
+                        "recall": float(recall_score(y_class, class_predictions, zero_division=0)),
+                        "f1": float(f1_score(y_class, class_predictions, zero_division=0)),
+                        "accuracy": float(accuracy_score(y_class, class_predictions)),
+                        "specificity": float(tn / max(1, tn + fp)),
+                        "roc_auc": float(roc_auc_score(y_class, class_probabilities)),
+                        "pr_auc": float(average_precision_score(y_class, class_probabilities)),
+                    })
             st.session_state["creditguard_model_comparison"] = {
                 "scenario": selected_scenario,
                 "y_validation": splits.y_val.astype("int8").tolist(),
@@ -136,6 +165,9 @@ if run_comparison:
                         "precision": values["precision_at_050"],
                         "recall": values["recall_at_050"],
                         "f1": values["f1_at_050"],
+                        "accuracy": values["accuracy_at_050"],
+                        "specificity": values["specificity_at_050"],
+                        "class_metrics": values["class_metrics"],
                     }
                     for name, values in comparison.items()
                 },
@@ -143,13 +175,14 @@ if run_comparison:
             temporary_manifest = manifest_path.with_suffix(".tmp")
             temporary_manifest.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
             temporary_manifest.replace(manifest_path)
+            st.session_state["creditguard_validation_manifest"] = manifest
         except Exception as exc:
             st.error(f"Could not run the comparison: {exc}")
             st.stop()
 
 result = st.session_state.get("creditguard_model_comparison")
 if result and result["scenario"] == selected_scenario:
-    from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
+    from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score
 
     st.divider()
     st.subheader(f"Validation comparison · {scenario_labels[result['scenario']]}")
@@ -172,6 +205,8 @@ if result and result["scenario"] == selected_scenario:
             "Precision @ 0.50": precision_score(validation_labels, default_prediction, zero_division=0),
             "Recall @ 0.50": recall_score(validation_labels, default_prediction, zero_division=0),
             "F1 @ 0.50": f1_score(validation_labels, default_prediction, zero_division=0),
+            "Accuracy @ 0.50": accuracy_score(validation_labels, default_prediction),
+            "Specificity @ 0.50": values["specificity_at_050"],
         })
     summary = pd.DataFrame(comparison_rows).set_index("Model")
     st.markdown("**Model scores**")
@@ -180,7 +215,55 @@ if result and result["scenario"] == selected_scenario:
         width="stretch",
         alt="Validation metrics comparing Logistic Regression, Random Forest, and XGBoost",
     )
-    st.caption("PR-AUC and ROC-AUC evaluate ranking across thresholds. The other columns use a fixed 0.50 cutoff.")
+    st.caption("PR-AUC and ROC-AUC evaluate ranking across thresholds. Other columns use a fixed 0.50 cutoff.")
+
+    st.markdown("**Class-level results · validation at threshold 0.50**")
+    class_rows = []
+    for model_name, model_values in result["comparison"].items():
+        for class_result in model_values["class_metrics"]:
+            class_rows.append({"Model": model_name, **class_result})
+    class_table = pd.DataFrame(class_rows).rename(columns={
+        "class_name": "Class/Label", "class_label": "Label value", "tp": "TP", "tn": "TN",
+        "fp": "FP", "fn": "FN", "precision": "Precision", "recall": "Recall", "f1": "F1-Score",
+        "accuracy": "Accuracy", "specificity": "Specificity", "roc_auc": "ROC-AUC", "pr_auc": "PR-AUC",
+    })
+    st.dataframe(
+        class_table.style.format({column: "{:.3f}" for column in ("Precision", "Recall", "F1-Score", "Accuracy", "Specificity", "ROC-AUC", "PR-AUC")}),
+        width="stretch",
+        hide_index=True,
+        alt="Validation metrics by model and class at threshold 0.50",
+    )
+    st.caption("Per-class TP/TN/FP/FN use one-vs-rest: each class is treated as positive in turn. ROC-AUC and PR-AUC are also calculated for each class.")
+
+    manifest = st.session_state.get("creditguard_validation_manifest")
+    if manifest is None:
+        manifest_path = DATA_DIR / "results" / "validation_comparisons.json"
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                manifest = {"scenarios": {}}
+    export_rows = []
+    if manifest:
+        for scenario_key, scenario_result in manifest.get("scenarios", {}).items():
+            for model_name, model_result in scenario_result.get("models", {}).items():
+                for class_result in model_result.get("class_metrics", []):
+                    export_rows.append({"Scenario": scenario_key, "Model": model_name, **class_result})
+    if export_rows:
+        export_table = pd.DataFrame(export_rows).rename(columns={
+            "class_name": "Class/Label", "class_label": "Label value", "tp": "TP", "tn": "TN",
+            "fp": "FP", "fn": "FN", "precision": "Precision (%)", "recall": "Recall (%)", "f1": "F1-Score (%)",
+            "accuracy": "Accuracy (%)", "specificity": "Specificity (%)", "roc_auc": "ROC-AUC", "pr_auc": "PR-AUC",
+        })
+        for column in ("Precision (%)", "Recall (%)", "F1-Score (%)", "Accuracy (%)", "Specificity (%)"):
+            export_table[column] = export_table[column] * 100
+        st.download_button(
+            "Download results table as CSV",
+            data=export_table.to_csv(index=False).encode("utf-8-sig"),
+            file_name="experiment_results_by_scenario_model_class.csv",
+            mime="text/csv",
+            help="Includes completed scenario runs. Run S1, S2, and S3 to build the full table.",
+        )
 
     selected_model = st.selectbox(
         "Inspect decision threshold for",
@@ -202,6 +285,7 @@ if result and result["scenario"] == selected_scenario:
     metrics[0].metric("Precision", f"{precision_score(validation_labels, predictions, zero_division=0):.3f}")
     metrics[1].metric("Recall", f"{recall_score(validation_labels, predictions, zero_division=0):.3f}")
     metrics[2].metric("F1", f"{f1_score(validation_labels, predictions, zero_division=0):.3f}")
+    st.metric("Accuracy", f"{accuracy_score(validation_labels, predictions):.3f}")
     st.markdown("**Confusion matrix · validation at selected threshold**")
     matrix = pd.DataFrame(
         [[int(tn), int(fp)], [int(fn), int(tp)]],
