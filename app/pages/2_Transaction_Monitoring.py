@@ -1,6 +1,4 @@
-
-"""Transaction Monitoring page for CreditGuard AI."""
-
+"""User-facing Transaction Monitoring page for CreditGuard AI."""
 from __future__ import annotations
 
 import numpy as np
@@ -11,27 +9,128 @@ from src.utils import load_dataset_settings, load_dataset, resolve_dataset_path
 from src.model_inference import load_fraud_model
 from src.agent.orchestrator import run_agent
 
+st.set_page_config(page_title="CreditGuard AI | Transaction Monitoring", page_icon="🛡️", layout="wide")
 
-st.set_page_config(
-    page_title="CreditGuard AI | Transaction Monitoring",
-    page_icon="🛡️",
-    layout="wide",
-)
-
-
-# ==================================================
-# CONFIGURATION
-# ==================================================
-
+# Policy settings remain internal; users do not need to configure model thresholds.
 DEFAULT_THRESHOLD = 0.50
 DEFAULT_ANALYSIS_TRIGGER = 0.10
 DEFAULT_REVIEW_THRESHOLD = 0.20
 DEFAULT_ESCALATE_THRESHOLD = 0.70
 
 
-# ==================================================
-# MODEL FEATURE CONTRACT
-# ==================================================
+PURPLE = "#a855f7"
+PINK = "#ec4899"
+
+
+def apply_theme(theme: str) -> None:
+    dark = theme == "Dark Mode"
+
+    colors = {
+        "bg": "#11162a" if dark else "#f7f5fc",
+        "surface": "#1c2440" if dark else "#ffffff",
+        "surface_alt": "#222c4a" if dark else "#fffaff",
+        "text": "#f4f1ff" if dark else "#25233a",
+        "muted": "#a9b1ca" if dark else "#77748d",
+        "border": "#303b5d" if dark else "#ebe5f3",
+        "shadow": "rgba(3, 7, 18, .22)" if dark else "rgba(92, 57, 130, .08)",
+    }
+
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background: {colors["bg"]};
+            color: {colors["text"]};
+        }}
+
+        [data-testid="stSidebar"] {{
+            background: {colors["surface"]};
+            border-right: 1px solid {colors["border"]};
+        }}
+
+        .block-container {{
+            max-width: 1600px;
+            padding-top: 1.7rem;
+            padding-bottom: 2.5rem;
+        }}
+
+        .cg-eyebrow {{
+            color: {PURPLE};
+            font-size: .72rem;
+            font-weight: 800;
+            letter-spacing: .17em;
+        }}
+
+        .cg-hero {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.5rem;
+            padding: 1.35rem 1.6rem;
+            margin: .5rem 0 1.25rem;
+            border: 1px solid {colors["border"]};
+            border-radius: 20px;
+            background: linear-gradient(
+                112deg,
+                {colors["surface"]} 0%,
+                {colors["surface_alt"]} 72%,
+                {"#36224e" if dark else "#fbe9f7"} 100%
+            );
+            box-shadow: 0 12px 30px {colors["shadow"]};
+        }}
+
+        .cg-hero-kicker {{
+            color: {PINK};
+            font-size: .72rem;
+            font-weight: 800;
+            letter-spacing: .12em;
+        }}
+
+        .cg-hero-title {{
+            color: {colors["text"]};
+            font-size: 1.45rem;
+            font-weight: 750;
+            margin: .35rem 0 .25rem;
+        }}
+
+        .cg-hero-copy {{
+            color: {colors["muted"]};
+            font-size: .9rem;
+        }}
+
+        .cg-hero-chip {{
+            flex: 0 0 auto;
+            border: 1px solid {colors["border"]};
+            border-radius: 999px;
+            padding: .55rem .85rem;
+            color: {PINK};
+            background: {"rgba(236,72,153,.10)" if dark else "rgba(236,72,153,.07)"};
+            font-size: .7rem;
+            letter-spacing: .08em;
+            font-weight: 800;
+        }}
+
+        [data-testid="stVerticalBlockBorderWrapper"] > div {{
+            border-radius: 18px;
+            border-color: {colors["border"]};
+            box-shadow: 0 8px 22px {colors["shadow"]};
+        }}
+
+        @media (max-width: 900px) {{
+            .cg-hero {{
+                align-items: flex-start;
+                flex-direction: column;
+            }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+apply_theme("Dark Mode")
+
+
 
 @st.cache_data(show_spinner=False)
 def get_model_features() -> list[str]:
@@ -39,525 +138,265 @@ def get_model_features() -> list[str]:
     return list(model.feature_names_in_)
 
 
-def prepare_transaction(
-    dataframe: pd.DataFrame,
-    expected_features: list[str],
-) -> pd.DataFrame:
-
-    if not isinstance(dataframe, pd.DataFrame):
-        raise TypeError("Input must be a pandas DataFrame.")
-
-    if len(dataframe) != 1:
+def prepare_transaction(dataframe: pd.DataFrame, expected_features: list[str]) -> pd.DataFrame:
+    if not isinstance(dataframe, pd.DataFrame) or len(dataframe) != 1:
         raise ValueError("Exactly one transaction must be selected.")
-
-    missing = [
-        feature for feature in expected_features
-        if feature not in dataframe.columns
-    ]
-
+    missing = [feature for feature in expected_features if feature not in dataframe.columns]
     if missing:
-        raise ValueError(f"Missing model features: {missing}")
-
+        raise ValueError("The selected transaction is missing required information.")
     transaction = dataframe.loc[:, expected_features].copy()
-
     for column in expected_features:
-        transaction[column] = pd.to_numeric(
-            transaction[column], errors="coerce"
-        )
-
-    if transaction.isna().any().any():
-        raise ValueError("Transaction contains missing or invalid values.")
-
-    if not np.isfinite(transaction.to_numpy(dtype=float)).all():
-        raise ValueError("Transaction contains infinite values.")
-
+        transaction[column] = pd.to_numeric(transaction[column], errors="coerce")
+    if transaction.isna().any().any() or not np.isfinite(transaction.to_numpy(dtype=float)).all():
+        raise ValueError("The selected transaction contains incomplete or invalid values.")
     return transaction.reset_index(drop=True)
 
 
-# ==================================================
-# RULE-BASED EXPLANATION
-# ==================================================
+def find_column(dataframe: pd.DataFrame, candidates: list[str]) -> str | None:
+    lookup = {str(column).strip().lower(): column for column in dataframe.columns}
+    return next((lookup[name.lower()] for name in candidates if name.lower() in lookup), None)
+
+
+def humanize(value) -> str:
+    return str(value).replace("_", " ").replace("-", " ").strip().title()
+
+
+def render_transaction_details(dataframe: pd.DataFrame, row_index: int) -> None:
+    id_col = find_column(dataframe, ["Transaction ID", "Transaction_ID", "transactionid", "ID", "id"])
+    amount_col = find_column(dataframe, ["Amount", "Transaction Amount", "amount"])
+    time_col = find_column(dataframe, ["Transaction Time", "Timestamp", "Datetime", "Date", "Time"])
+    type_col = find_column(dataframe, ["Transaction Type", "Type", "Transaction_Type"])
+    row = dataframe.iloc[row_index]
+
+    fields = [
+        ("Transaction ID", str(row[id_col])) if id_col is not None else
+        ("Transaction Reference", f"TRX-{row_index + 1:06d}")
+    ]
+    if amount_col is not None:
+        try:
+            amount = float(row[amount_col])
+            formatted_amount = f"Rp {amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except (TypeError, ValueError):
+            formatted_amount = str(row[amount_col])
+
+        fields.append(("Amount", formatted_amount))
+        
+    if time_col is not None:
+        try:
+            time_seconds = float(row[time_col])
+
+            hours = int(time_seconds // 3600)
+            minutes = int((time_seconds % 3600) // 60)
+            seconds = int(time_seconds % 60)
+
+            formatted_time = (
+                f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            )
+
+        except (TypeError, ValueError):
+            formatted_time = str(row[time_col])
+
+        fields.append(
+            ("Elapsed Time", formatted_time)
+        )
+    if type_col is not None:
+        fields.append(("Transaction Type", str(row[type_col])))
+
+    with st.container(border=True):
+        st.markdown("**Selected Transaction**")
+        cols = st.columns(min(4, len(fields)))
+        for index, (label, value) in enumerate(fields):
+            cols[index].metric(label, value)
+
 
 def generate_explanation(result: dict) -> dict:
-    """Generate a human-readable explanation from Agent outputs."""
-
     ml = result["ml_prediction"]
     risk = result["risk_assessment"]
     analysis = result["transaction_analysis"]
-    decision = result["decision"]
+    action = str(result["decision"]["recommended_action"]).upper()
     policy = result["policy_configuration"]
-
     probability = float(ml["fraud_probability"])
-    risk_level = risk["risk_level"]
-    classification = ml["classification"]
-    action = decision["recommended_action"]
+    risk_level = str(risk["risk_level"]).upper()
+    review = float(policy["review_threshold"])
+    escalate = float(policy["escalate_threshold"])
 
-    review_threshold = float(policy["review_threshold"])
-    escalate_threshold = float(policy["escalate_threshold"])
-    analysis_trigger = float(policy["analysis_trigger"])
-
-    # Main interpretation
     if risk_level == "LOW":
-        interpretation = (
-            "The model estimates a low likelihood of fraudulent activity. "
-            "The transaction's estimated fraud probability is below "
-            "the configured review threshold."
-        )
+        interpretation = "Transaksi ini memiliki indikasi risiko fraud yang rendah berdasarkan hasil pemeriksaan sistem."
     elif risk_level == "MEDIUM":
-        interpretation = (
-            "The transaction has a moderate estimated fraud risk. "
-            "It requires additional attention because its fraud "
-            "probability has reached the review threshold."
-        )
+        interpretation = "Transaksi ini menunjukkan indikasi risiko yang perlu diperhatikan dan disarankan untuk ditinjau lebih lanjut."
     else:
-        interpretation = (
-            "The transaction has a high estimated fraud risk. "
-            "Its fraud probability has reached or exceeded the "
-            "configured escalation threshold."
-        )
+        interpretation = "Transaksi ini menunjukkan indikasi risiko fraud yang tinggi dan disarankan untuk segera ditindaklanjuti."
 
-    # Evidence
-    evidence = []
-
-    evidence.append(
-        f"The XGBoost model classified this transaction as {classification}."
-    )
-
-    evidence.append(
-        f"The estimated fraud probability is {probability:.4%}."
-    )
-
-    if probability < review_threshold:
-        evidence.append(
-            f"The probability is below the review threshold "
-            f"({review_threshold:.0%})."
-        )
-    elif probability < escalate_threshold:
-        evidence.append(
-            f"The probability has reached the review threshold "
-            f"({review_threshold:.0%}) but remains below the "
-            f"escalation threshold ({escalate_threshold:.0%})."
-        )
+    evidence = [f"Estimasi kemungkinan fraud sebesar {probability:.2%}."]
+    if probability < review:
+        evidence.append("Hasil estimasi masih berada di bawah batas pemeriksaan.")
+    elif probability < escalate:
+        evidence.append("Hasil estimasi telah mencapai tingkat yang memerlukan pemeriksaan.")
     else:
-        evidence.append(
-            f"The probability has reached or exceeded the escalation "
-            f"threshold ({escalate_threshold:.0%})."
-        )
+        evidence.append("Hasil estimasi telah mencapai tingkat eskalasi.")
 
     if analysis.get("analysis_skipped"):
-        evidence.append(
-            f"Additional transaction analysis was skipped because "
-            f"the probability is below the analysis trigger "
-            f"({analysis_trigger:.0%})."
-        )
+        evidence.append("Pemeriksaan indikator tambahan tidak diperlukan berdasarkan hasil penyaringan awal.")
     else:
         indicators = analysis.get("transaction_indicators") or {}
-
-        if indicators:
-            active_indicators = [
-                str(name).replace("_", " ").title()
-                for name, value in indicators.items()
-                if bool(value)
-            ]
-
-            if active_indicators:
-                evidence.append(
-                    "Additional transaction indicators: "
-                    + ", ".join(active_indicators)
-                    + "."
-                )
-            else:
-                evidence.append(
-                    "No additional transaction indicators were flagged "
-                    "by the current analysis rules."
-                )
-
+        active = [humanize(name) for name, value in indicators.items() if bool(value)]
+        if active:
+            evidence.append("Indikator tambahan yang terdeteksi: " + ", ".join(active) + ".")
+        elif indicators:
+            evidence.append("Tidak ada indikator tambahan yang terdeteksi.")
         if analysis.get("amount_category"):
-            evidence.append(
-                f"Transaction amount category: "
-                f"{analysis['amount_category']}."
-            )
-
+            evidence.append("Kategori nominal transaksi: " + humanize(analysis["amount_category"]) + ".")
         if analysis.get("time_category"):
-            evidence.append(
-                f"Transaction time category: "
-                f"{analysis['time_category']}."
-            )
+            evidence.append("Kategori waktu transaksi: " + humanize(analysis["time_category"]) + ".")
 
-    # Recommendation explanation
-    action_explanations = {
-        "ALLOW": (
-            "The current policy recommends allowing this transaction "
-            "because its assessed risk is low."
-        ),
-        "REVIEW": (
-            "The current policy recommends manual review before "
-            "a final operational decision is made."
-        ),
-        "ESCALATE": (
-            "The current policy recommends escalating this transaction "
-            "for further investigation because of its high assessed risk."
-        ),
-    }
+    action_text = {
+        "ALLOW": "Sistem merekomendasikan transaksi dapat dilanjutkan berdasarkan tingkat risiko yang terukur.",
+        "REVIEW": "Sistem merekomendasikan pemeriksaan manual sebelum keputusan operasional dibuat.",
+        "ESCALATE": "Sistem merekomendasikan transaksi diteruskan untuk investigasi lebih lanjut.",
+    }.get(action, "Sistem belum dapat memberikan rekomendasi tindakan.")
 
     return {
-        "interpretation": interpretation,
-        "evidence": evidence,
-        "action_explanation": action_explanations.get(
-            action, "No explanation is available for this action."
-        ),
-        "risk_level": risk_level,
-        "recommended_action": action,
+        "probability": probability, "risk_level": risk_level, "action": action,
+        "interpretation": interpretation, "evidence": evidence, "action_text": action_text,
+        "analysis": analysis,
     }
 
 
-# ==================================================
-# RESULT RENDERING
-# ==================================================
-
 def render_result(result: dict) -> None:
-
     if result.get("status") != "success":
-        st.error("Agent execution failed.")
-
-        st.write("Failed tool:", result.get("failed_tool", "Unknown"))
-        st.error(result.get("error", {}).get("message", "Unknown error"))
-
-        with st.expander("Technical Details"):
-            st.json(result.get("error", {}))
-            st.write(result.get("execution_trace", []))
-
+        st.error("Analisis belum berhasil diselesaikan. Silakan coba kembali atau hubungi administrator sistem.")
         return
 
-    ml = result["ml_prediction"]
-    threshold = result["threshold_analysis"]
-    analysis = result["transaction_analysis"]
-    risk = result["risk_assessment"]
-    decision = result["decision"]
+    info = generate_explanation(result)
+    probability, risk_level, action = info["probability"], info["risk_level"], info["action"]
 
-    probability = float(ml["fraud_probability"])
-    classification = ml["classification"]
-    risk_level = risk["risk_level"]
-    action = decision["recommended_action"]
+    st.markdown("### Analysis Result")
+    with st.container(border=True):
+        c1, c2 = st.columns(2)
+        c1.metric("Fraud Probability", f"{probability:.2%}")
+        c2.metric("Risk Level", risk_level.title())
+        st.progress(min(max(probability, 0.0), 1.0), text="Estimated fraud probability")
+        st.markdown("**Assessment**")
+        st.write(info["interpretation"])
 
-    explanation = generate_explanation(result)
+    st.markdown("### Why Was This Transaction Flagged?")
+    with st.container(border=True):
+        for item in info["evidence"]:
+            st.markdown(f"- {item}")
 
-    st.divider()
-    st.subheader("Transaction Analysis Result")
+    st.markdown("### Recommended Action")
+    with st.container(border=True):
+        if action == "ALLOW":
+            st.success("**ALLOW · Low estimated risk**")
+        elif action == "REVIEW":
+            st.warning("**REVIEW · Manual review recommended**")
+        else:
+            st.error("**ESCALATE · Further investigation recommended**")
+        st.write(info["action_text"])
 
-    # Main metrics
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Fraud Probability",
-        f"{probability:.4%}",
-    )
-
-    col2.metric(
-        "ML Classification",
-        classification,
-    )
-
-    col3.metric(
-        "Risk Level",
-        risk_level,
-    )
-
-    st.progress(
-        min(max(probability, 0.0), 1.0),
-        text=f"Estimated fraud probability: {probability:.4%}",
-    )
-
-    # Human-readable interpretation
-    st.divider()
-    st.subheader("System Interpretation")
-
-    st.write(explanation["interpretation"])
-
-    # Evidence
-    st.markdown("#### Why did the system produce this result?")
-
-    for item in explanation["evidence"]:
-        st.markdown(f"- {item}")
-
-    # Recommended action
-    st.divider()
-    st.subheader("Recommended Action")
-
-    if action == "ALLOW":
-        st.success(f"**{action}** — Low estimated risk")
-    elif action == "REVIEW":
-        st.warning(f"**{action}** — Manual review recommended")
-    else:
-        st.error(f"**{action}** — Further investigation recommended")
-
-    st.write(explanation["action_explanation"])
+    if not info["analysis"].get("analysis_skipped"):
+        indicators = info["analysis"].get("transaction_indicators") or {}
+        active = [humanize(name) for name, value in indicators.items() if bool(value)]
+        if active:
+            st.markdown("### Additional Findings")
+            with st.container(border=True):
+                for item in active:
+                    st.markdown(f"- {item}")
 
     st.caption(
-        "This is a system recommendation only. "
-        "It does not automatically approve, reject, or block "
-        "a real financial transaction."
+        "CreditGuard AI memberikan rekomendasi berdasarkan hasil analisis model. "
+        "Sistem tidak secara otomatis menyetujui, menolak, atau memblokir transaksi."
     )
 
-    # Additional transaction analysis
-    st.divider()
-    st.subheader("Transaction Evidence")
 
-    if analysis.get("analysis_skipped"):
-        st.info(
-            "Additional transaction analysis was not executed. "
-            + str(analysis.get("reason", ""))
-        )
-    else:
-        evidence_col1, evidence_col2 = st.columns(2)
-
-        evidence_col1.metric(
-            "Transaction Amount",
-            f"{analysis.get('transaction_amount', 0):,.2f}",
-        )
-
-        evidence_col2.metric(
-            "Transaction Time",
-            f"{analysis.get('transaction_time', 0):,.0f}",
-        )
-
-        st.write(
-            "**Amount Category:**",
-            analysis.get("amount_category"),
-        )
-
-        st.write(
-            "**Time Category:**",
-            analysis.get("time_category"),
-        )
-
-        indicators = analysis.get("transaction_indicators") or {}
-
-        if indicators:
-            st.markdown("**Transaction Indicators**")
-
-            for name, value in indicators.items():
-                st.write(
-                    f"- {str(name).replace('_', ' ').title()}: "
-                    f"{'Detected' if value else 'Not detected'}"
-                )
-
-    # Technical information
-    with st.expander("Technical Details", expanded=False):
-
-        st.markdown("#### Threshold Analysis")
-        st.json(threshold)
-
-        st.markdown("#### Risk Assessment")
-        st.json(risk)
-
-        st.markdown("#### Agent Execution Trace")
-
-        for index, step in enumerate(
-            result.get("execution_trace", []), start=1
-        ):
-            st.write(f"{index}. {step}")
-
-        st.markdown("#### Policy Configuration")
-        st.json(result.get("policy_configuration", {}))
-
-
-# ==================================================
-# PAGE HEADER
-# ==================================================
-
+# Page header
 st.title("Transaction Monitoring")
+st.caption("CreditGuard AI · Intelligent Financial Fraud Detection")
+st.markdown("Pilih transaksi untuk diperiksa dan dapatkan penilaian risiko beserta rekomendasi tindak lanjut.")
 
-st.caption(
-    "CreditGuard AI · ML-powered transaction analysis "
-    "with conditional Agent orchestration"
-)
-
-st.markdown(
-    "Analyze an individual transaction using the trained "
-    "XGBoost model and CreditGuard AI Agent."
-)
-
-
-# ==================================================
-# LOAD MODEL
-# ==================================================
-
+# Load model and configured dataset
 try:
     expected_features = get_model_features()
-
-except Exception as error:
-    st.error(f"Unable to load the model feature contract: {error}")
+except Exception:
+    st.error("Layanan analisis belum dapat dimuat. Silakan hubungi administrator sistem.")
     st.stop()
-
-
-# ==================================================
-# LOAD CONFIGURED DATASET
-# ==================================================
-
-st.subheader("1. Transaction Selection")
 
 settings = load_dataset_settings()
 dataset_path = resolve_dataset_path(settings)
-
 if dataset_path is None:
-    st.warning(
-        "No active dataset was found. "
-        "Please upload and configure a dataset through Settings & Dataset."
-    )
+    st.warning("Belum ada sumber transaksi yang aktif. Silakan minta administrator mengatur dataset melalui Settings & Dataset.")
     st.stop()
 
 try:
     dataset = load_dataset(dataset_path)
-
-except Exception as error:
-    st.error(f"Could not load the active dataset: {error}")
+except Exception:
+    st.error("Data transaksi tidak dapat dibuka. Silakan periksa konfigurasi dataset atau hubungi administrator.")
     st.stop()
-
-st.caption(f"Active dataset: {dataset_path.name}")
 
 if dataset.empty:
-    st.warning("The configured dataset is empty.")
+    st.warning("Sumber data transaksi belum memiliki data.")
     st.stop()
 
-missing = [
-    feature for feature in expected_features
-    if feature not in dataset.columns
-]
-
+missing = [feature for feature in expected_features if feature not in dataset.columns]
 if missing:
-    st.error(f"Dataset is missing model features: {missing}")
+    st.error("Struktur data belum sesuai dengan kebutuhan analisis. Silakan hubungi administrator sistem.")
     st.stop()
 
-info1, info2, info3 = st.columns(3)
+# Transaction selection
+st.markdown("### Select Transaction")
+id_col = find_column(dataset, ["Transaction ID", "Transaction_ID", "transactionid", "ID", "id"])
+options = list(range(len(dataset)))
 
-info1.metric("Total Transactions", f"{len(dataset):,}")
-info2.metric("Model Features", len(expected_features))
-info3.metric("Dataset", dataset_path.name)
+if id_col is not None:
+    ids = dataset[id_col].astype(str)
+    selected_row = st.selectbox(
+        "Find a transaction", options,
+        format_func=lambda index: ids.iloc[index],
+        key="monitoring_selected_row",
+        help="Pilih transaksi berdasarkan ID yang tersedia pada dataset.",
+    )
+else:
+    selected_row = st.selectbox(
+        "Choose a transaction", options,
+        format_func=lambda index: f"Transaction {index + 1:06d}",
+        key="monitoring_selected_row",
+        help="ID transaksi tidak tersedia. Referensi ditampilkan berdasarkan urutan data.",
+    )
 
-selected_row = st.number_input(
-    "Select Transaction Row",
-    min_value=0,
-    max_value=len(dataset) - 1,
-    value=0,
-    step=1,
-)
-
+render_transaction_details(dataset, int(selected_row))
 transaction_data = dataset.iloc[[int(selected_row)]].copy()
 
-transaction_label = f"Dataset row {int(selected_row)}"
+# Run analysis
+st.markdown("### Fraud Detection")
+st.markdown("Jalankan pemeriksaan untuk mengetahui estimasi risiko dan rekomendasi tindakan terhadap transaksi yang dipilih.")
 
-with st.expander("Selected Transaction Preview"):
-    st.dataframe(
-        transaction_data,
-        width="stretch",
-        hide_index=True,
-    )
-
-
-# ==================================================
-# AGENT CONFIGURATION
-# ==================================================
-
-st.divider()
-st.subheader("2. Agent Configuration")
-
-with st.expander("Advanced Configuration", expanded=False):
-
-    threshold = st.slider(
-        "Classification Threshold",
-        min_value=0.01,
-        max_value=0.99,
-        value=DEFAULT_THRESHOLD,
-        step=0.01,
-    )
-
-    analysis_trigger = st.slider(
-        "Transaction Analysis Trigger",
-        min_value=0.01,
-        max_value=0.99,
-        value=DEFAULT_ANALYSIS_TRIGGER,
-        step=0.01,
-    )
-
-    review_threshold = st.slider(
-        "Review Threshold",
-        min_value=0.01,
-        max_value=0.98,
-        value=DEFAULT_REVIEW_THRESHOLD,
-        step=0.01,
-    )
-
-    escalate_threshold = st.slider(
-        "Escalation Threshold",
-        min_value=0.02,
-        max_value=0.99,
-        value=DEFAULT_ESCALATE_THRESHOLD,
-        step=0.01,
-    )
-
-    if review_threshold >= escalate_threshold:
-        st.error(
-            "Review Threshold must be lower than Escalation Threshold."
-        )
-
-
-# ==================================================
-# RUN AGENT
-# ==================================================
-
-st.divider()
-st.subheader("3. Run Fraud Analysis")
-
-can_analyze = review_threshold < escalate_threshold
-
-if st.button(
-    "Analyze Transaction",
-    type="primary",
-    width="stretch",
-    disabled=not can_analyze,
-):
-
+if st.button("Analyze Transaction", type="primary", width="stretch"):
     try:
-        prepared_transaction = prepare_transaction(
-            transaction_data,
-            expected_features,
-        )
-
-        with st.spinner(
-            "CreditGuard AI Agent is analyzing the transaction..."
-        ):
+        prepared = prepare_transaction(transaction_data, expected_features)
+        with st.spinner("CreditGuard AI sedang memeriksa transaksi..."):
             result = run_agent(
-                transaction=prepared_transaction,
-                threshold=threshold,
-                analysis_trigger=analysis_trigger,
-                review_threshold=review_threshold,
-                escalate_threshold=escalate_threshold,
+                transaction=prepared,
+                threshold=DEFAULT_THRESHOLD,
+                analysis_trigger=DEFAULT_ANALYSIS_TRIGGER,
+                review_threshold=DEFAULT_REVIEW_THRESHOLD,
+                escalate_threshold=DEFAULT_ESCALATE_THRESHOLD,
             )
-
         st.session_state["last_agent_result"] = result
-        st.session_state["last_transaction_label"] = transaction_label
-
-    except Exception as error:
-        st.error(f"Unable to analyze transaction: {error}")
-
-
-# ==================================================
-# DISPLAY RESULT
-# ==================================================
-
-if "last_agent_result" in st.session_state:
-
-    st.divider()
-    st.subheader("4. Analysis Output")
-
-    st.caption(
-        "Transaction: "
-        + str(
-            st.session_state.get(
-                "last_transaction_label", "Unknown"
-            )
+        st.session_state["last_transaction_row"] = int(selected_row)
+        st.session_state["last_transaction_label"] = (
+            str(dataset.iloc[int(selected_row)][id_col]) if id_col is not None
+            else f"Transaction {int(selected_row) + 1:06d}"
         )
-    )
+    except Exception:
+        st.error("Transaksi belum dapat dianalisis. Pastikan data valid dan coba kembali.")
 
-    render_result(st.session_state["last_agent_result"])
+# Show only the result for the currently selected transaction
+last_result = st.session_state.get("last_agent_result")
+last_row = st.session_state.get("last_transaction_row")
+if last_result is not None and last_row == int(selected_row):
+    st.divider()
+    st.markdown("### Transaction Assessment")
+    st.caption("Transaction: " + str(st.session_state.get("last_transaction_label", "Selected transaction")))
+    render_result(last_result)
+elif last_result is not None:
+    st.info("Pilih Analyze Transaction untuk memeriksa transaksi yang saat ini dipilih.")

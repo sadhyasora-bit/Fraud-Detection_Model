@@ -18,9 +18,141 @@ st.set_page_config(
 )
 
 
-# --------------------------------------------------
-# Paths and configuration
-# --------------------------------------------------
+# ==================================================
+# THEME
+# ==================================================
+
+PURPLE = "#a855f7"
+PINK = "#ec4899"
+
+
+def apply_theme() -> None:
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background: #11162a;
+            color: #f4f1ff;
+        }}
+
+        [data-testid="stSidebar"] {{
+            background: #1c2440;
+            border-right: 1px solid #303b5d;
+        }}
+
+        .block-container {{
+            max-width: 1600px;
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }}
+
+        [data-testid="stVerticalBlock"] {{
+            gap: .75rem;
+        }}
+
+        .cg-eyebrow {{
+            color: {PURPLE};
+            font-size: .72rem;
+            font-weight: 800;
+            letter-spacing: .17em;
+        }}
+
+        .cg-hero {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1.5rem;
+            padding: 1.2rem 1.5rem;
+            margin: .4rem 0 1rem;
+            border: 1px solid #303b5d;
+            border-radius: 18px;
+            background: linear-gradient(
+                112deg, #1c2440 0%, #222c4a 72%, #36224e 100%
+            );
+            box-shadow: 0 10px 24px rgba(3, 7, 18, .20);
+        }}
+
+        .cg-hero-kicker {{
+            color: {PINK};
+            font-size: .7rem;
+            font-weight: 800;
+            letter-spacing: .12em;
+        }}
+
+        .cg-hero-title {{
+            color: #f4f1ff;
+            font-size: 1.4rem;
+            font-weight: 750;
+            margin: .3rem 0 .2rem;
+        }}
+
+        .cg-hero-copy {{
+            color: #a9b1ca;
+            font-size: .88rem;
+        }}
+
+        .cg-hero-chip {{
+            flex: 0 0 auto;
+            border: 1px solid #303b5d;
+            border-radius: 999px;
+            padding: .5rem .8rem;
+            color: {PINK};
+            background: rgba(236, 72, 153, .10);
+            font-size: .68rem;
+            letter-spacing: .08em;
+            font-weight: 800;
+        }}
+
+        [data-testid="stVerticalBlockBorderWrapper"] > div {{
+            border-radius: 15px;
+            border-color: #303b5d;
+            box-shadow: 0 6px 18px rgba(3, 7, 18, .16);
+        }}
+
+        [data-testid="stMetric"] {{
+            padding: .2rem;
+        }}
+
+        [data-testid="stMetricLabel"] {{
+            font-size: .82rem;
+        }}
+
+        [data-testid="stMetricValue"] {{
+            font-size: 1.65rem;
+        }}
+
+        h2 {{
+            margin-top: .35rem !important;
+            margin-bottom: .35rem !important;
+        }}
+
+        h3, h4 {{
+            margin-top: .2rem !important;
+            margin-bottom: .4rem !important;
+        }}
+
+        hr {{
+            margin: .55rem 0 !important;
+        }}
+
+        @media (max-width: 900px) {{
+            .cg-hero {{
+                align-items: flex-start;
+                flex-direction: column;
+            }}
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+apply_theme()
+
+
+# ==================================================
+# PATHS
+# ==================================================
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,25 +161,21 @@ AUDIT_LOG_PATH = (
 )
 
 
-# --------------------------------------------------
-# Load and process audit logs
-# --------------------------------------------------
+# ==================================================
+# LOAD AUDIT RECORDS
+# ==================================================
 
 @st.cache_data(show_spinner=False)
 def load_audit_records() -> list[dict]:
-    """Load valid JSONL audit records."""
 
     if not AUDIT_LOG_PATH.exists():
         return []
 
     records = []
 
-    with AUDIT_LOG_PATH.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
+    with AUDIT_LOG_PATH.open("r", encoding="utf-8") as file:
 
-        for line_number, line in enumerate(file, start=1):
+        for line in file:
 
             if not line.strip():
                 continue
@@ -64,10 +192,11 @@ def load_audit_records() -> list[dict]:
     return records
 
 
-def build_investigation_cases(
-    records: list[dict],
-) -> list[dict]:
-    """Group audit events into Agent analysis cases."""
+# ==================================================
+# BUILD INVESTIGATION CASES
+# ==================================================
+
+def build_investigation_cases(records: list[dict]) -> list[dict]:
 
     grouped = defaultdict(list)
 
@@ -75,17 +204,15 @@ def build_investigation_cases(
 
         run_id = record.get("run_id")
 
-        if not run_id:
-            continue
-
-        grouped[run_id].append(record)
+        if run_id:
+            grouped[run_id].append(record)
 
     cases = []
 
     for run_id, events in grouped.items():
 
         events.sort(
-            key=lambda item: item.get("timestamp", "")
+            key=lambda item: item.get("timestamp") or ""
         )
 
         case = {
@@ -100,13 +227,13 @@ def build_investigation_cases(
 
         for event in events:
 
+            if event.get("status") == "failed":
+                continue
+
             tool_name = event.get("tool_name")
             output = event.get("output", {})
 
             if not isinstance(output, dict):
-                continue
-
-            if event.get("status") == "failed":
                 continue
 
             if tool_name == "ml_prediction":
@@ -123,24 +250,24 @@ def build_investigation_cases(
 
         decision = case["decision"]
 
-        # Only completed decisions enter the investigation queue.
         if not decision:
             continue
 
-        action = decision.get("recommended_action")
-
-        case["recommended_action"] = action
-        case["risk_level"] = (
-            case["risk_assessment"].get("risk_level", "UNKNOWN")
+        case["recommended_action"] = decision.get(
+            "recommended_action", "UNKNOWN"
         )
 
-        case["fraud_probability"] = (
-            case["ml_prediction"].get("fraud_probability")
+        case["risk_level"] = case["risk_assessment"].get(
+            "risk_level", "UNKNOWN"
         )
 
-        case["transaction_amount"] = (
-            case["risk_assessment"].get("transaction_amount")
+        case["fraud_probability"] = case["ml_prediction"].get(
+            "fraud_probability"
         )
+
+        case["transaction_amount"] = case[
+            "risk_assessment"
+        ].get("transaction_amount")
 
         cases.append(case)
 
@@ -152,203 +279,374 @@ def build_investigation_cases(
     return cases
 
 
-def format_probability(value):
+# ==================================================
+# FORMATTING HELPERS
+# ==================================================
+
+def format_probability(value) -> str:
+
     if value is None:
         return "N/A"
 
-    return f"{float(value):.4%}"
+    try:
+        return f"{float(value):.2%}"
+
+    except (TypeError, ValueError):
+        return "N/A"
 
 
-def format_amount(value):
+def format_amount(value) -> str:
+
     if value is None:
         return "N/A"
 
-    return f"${float(value):,.2f}"
+    try:
+        amount = float(value)
+
+        return (
+            f"Rp {amount:,.2f}"
+            .replace(",", "X")
+            .replace(".", ",")
+            .replace("X", ".")
+        )
+
+    except (TypeError, ValueError):
+        return "N/A"
 
 
-# --------------------------------------------------
-# Page header
-# --------------------------------------------------
+def format_timestamp(value) -> str:
 
-st.title("Fraud Investigation")
+    if not value:
+        return "N/A"
 
-st.caption(
-    "CreditGuard AI · Investigation Queue and Agent Audit Trail"
+    try:
+        timestamp = pd.to_datetime(value)
+
+        if pd.isna(timestamp):
+            return str(value)
+
+        return timestamp.strftime("%d %b %Y, %H:%M:%S")
+
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def display_value(value) -> str:
+
+    if value is None:
+        return "Belum tersedia"
+
+    if isinstance(value, bool):
+        return "Ya" if value else "Tidak"
+
+    if isinstance(value, list):
+        return ", ".join(map(str, value))
+
+    if isinstance(value, dict):
+        return ", ".join(
+            f"{key}: {item}"
+            for key, item in value.items()
+        )
+
+    return str(value)
+
+
+def get_action_label(action: str) -> str:
+
+    labels = {
+        "ALLOW": "Tidak Memerlukan Tindakan",
+        "REVIEW": "Perlu Ditinjau",
+        "ESCALATE": "Prioritas Investigasi",
+    }
+
+    return labels.get(action, "Belum Ditentukan")
+
+
+def get_risk_label(level: str) -> str:
+
+    labels = {
+        "LOW": "Rendah",
+        "MEDIUM": "Sedang",
+        "HIGH": "Tinggi",
+    }
+
+    return labels.get(level, "Belum Diketahui")
+
+
+def get_classification_label(value) -> str:
+
+    labels = {
+        "FRAUD": "Terindikasi Fraud",
+        "NORMAL": "Normal",
+        "LEGITIMATE": "Normal",
+    }
+
+    if value is None:
+        return "Belum tersedia"
+
+    return labels.get(str(value).upper(), str(value))
+
+
+def get_category_label(value) -> str:
+
+    labels = {
+        "LOW": "Rendah",
+        "MEDIUM": "Sedang",
+        "HIGH": "Tinggi",
+        "EARLY": "Awal periode",
+        "NORMAL": "Normal",
+        "LATE": "Akhir periode",
+    }
+
+    if value is None:
+        return "Belum tersedia"
+
+    return labels.get(str(value).upper(), str(value))
+
+
+def get_reason_label(value: str) -> str:
+
+    if not value:
+        return "Belum tersedia."
+
+    reasons = {
+        "Fraud probability reached the review threshold.":
+            "Probabilitas fraud telah mencapai batas yang memerlukan peninjauan.",
+
+        "Transaction requires further investigation.":
+            "Transaksi memerlukan pemeriksaan lebih lanjut.",
+    }
+
+    return reasons.get(value, value)
+
+
+def get_event_label(tool_name: str) -> str:
+
+    labels = {
+        "ml_prediction": "Pemeriksaan pola transaksi",
+        "threshold_analysis": "Evaluasi tingkat kecurigaan",
+        "transaction_analysis": "Analisis karakteristik transaksi",
+        "risk_assessment": "Penilaian tingkat risiko",
+        "decision": "Penyusunan rekomendasi",
+    }
+
+    return labels.get(tool_name, "Tahapan pemeriksaan")
+
+
+def render_indicators(value) -> None:
+
+    if not value:
+        st.caption("Tidak ada indikator tambahan yang tercatat.")
+        return
+
+    if isinstance(value, dict):
+
+        for key, item in value.items():
+
+            label = str(key).replace("_", " ").title()
+
+            st.markdown(
+                f"**{label}**: {display_value(item)}"
+            )
+
+    elif isinstance(value, list):
+
+        for item in value:
+            st.markdown(f"- {display_value(item)}")
+
+    else:
+        st.write(display_value(value))
+
+
+# ==================================================
+# PAGE HEADER
+# ==================================================
+
+st.markdown(
+    '<div class="cg-eyebrow">MONITORING / INVESTIGATION</div>',
+    unsafe_allow_html=True,
 )
 
 st.markdown(
     """
-    Review transactions recommended for further investigation
-    and inspect the sequence of Agent decisions.
-    """
+    <section class="cg-hero">
+        <div>
+            <div class="cg-hero-kicker">
+                CREDITGUARD AI · FRAUD ANALYTICS
+            </div>
+            <div class="cg-hero-title">Fraud Investigation</div>
+            <div class="cg-hero-copy">
+                Tinjau transaksi mencurigakan, pahami tingkat risiko,
+                dan periksa rekomendasi tindak lanjut.
+            </div>
+        </div>
+        <div class="cg-hero-chip">INVESTIGATION CENTER</div>
+    </section>
+    """,
+    unsafe_allow_html=True,
 )
 
 
-# --------------------------------------------------
-# Load records
-# --------------------------------------------------
+# ==================================================
+# LOAD DATA
+# ==================================================
 
 try:
     audit_records = load_audit_records()
 
-except Exception as error:
-    st.error(f"Unable to read audit log: {error}")
+except Exception:
+    st.error(
+        "Data pemeriksaan belum dapat dimuat. "
+        "Silakan coba kembali."
+    )
     st.stop()
 
 
 if not audit_records:
+
     st.info(
-        "No audit records found. Run a transaction analysis "
-        "from Transaction Monitoring first."
+        "Belum ada riwayat pemeriksaan. "
+        "Lakukan pemeriksaan transaksi melalui halaman "
+        "Transaction Monitoring terlebih dahulu."
     )
+
     st.stop()
 
 
 cases = build_investigation_cases(audit_records)
 
 if not cases:
-    st.warning(
-        "No completed Agent analyses with valid run_id were found."
+
+    st.info(
+        "Belum ada hasil pemeriksaan yang dapat ditampilkan."
     )
+
     st.stop()
 
 
+# ==================================================
+# INVESTIGATION OVERVIEW
+# ==================================================
 
-# --------------------------------------------------
-# Investigation overview
-# --------------------------------------------------
+st.subheader("Investigation Overview")
 
-st.subheader("1. Investigation Overview")
-
-# All completed Agent analyses
 total_analyses = len(cases)
 
 allow_analyses = sum(
-    case.get("recommended_action") == "ALLOW"
+    case["recommended_action"] == "ALLOW"
     for case in cases
 )
 
 review_analyses = sum(
-    case.get("recommended_action") == "REVIEW"
+    case["recommended_action"] == "REVIEW"
     for case in cases
 )
 
 escalated_analyses = sum(
-    case.get("recommended_action") == "ESCALATE"
+    case["recommended_action"] == "ESCALATE"
     for case in cases
 )
 
-# Risk distribution across all completed analyses
-low_risk = sum(
-    case.get("risk_level") == "LOW"
-    for case in cases
-)
+overview_metrics = [
+    ("Total Pemeriksaan", total_analyses),
+    ("Tidak Memerlukan Tindakan", allow_analyses),
+    ("Perlu Ditinjau", review_analyses),
+    ("Prioritas Investigasi", escalated_analyses),
+]
 
-medium_risk = sum(
-    case.get("risk_level") == "MEDIUM"
-    for case in cases
-)
+metric_cols = st.columns(4, gap="small")
 
-high_risk = sum(
-    case.get("risk_level") == "HIGH"
-    for case in cases
-)
+for col, (label, value) in zip(metric_cols, overview_metrics):
 
-# Overview metrics
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Total Analyses", total_analyses)
-col2.metric("ALLOW", allow_analyses)
-col3.metric("REVIEW", review_analyses)
-col4.metric("ESCALATE", escalated_analyses)
-
-st.caption("Risk Distribution")
-
-risk_col1, risk_col2, risk_col3 = st.columns(3)
-
-risk_col1.metric("Low Risk", low_risk)
-risk_col2.metric("Medium Risk", medium_risk)
-risk_col3.metric("High Risk", high_risk)
+    with col:
+        with st.container(border=True):
+            st.metric(label, f"{value:,}")
 
 
-# --------------------------------------------------
-# Investigation queue
-# --------------------------------------------------
+# ==================================================
+# INVESTIGATION QUEUE
+# ==================================================
 
 st.divider()
-
-st.subheader("2. Investigation Queue")
+st.subheader("Investigation Queue")
 
 investigation_cases = [
     case
     for case in cases
-    if case.get("recommended_action") in ["REVIEW", "ESCALATE"]
+    if case["recommended_action"] in ["REVIEW", "ESCALATE"]
 ]
 
-total_cases = len(investigation_cases)
-
-review_cases = sum(
-    case.get("recommended_action") == "REVIEW"
-    for case in investigation_cases
+st.caption(
+    "Daftar transaksi yang membutuhkan peninjauan "
+    "atau pemeriksaan lebih lanjut."
 )
 
-escalated_cases = sum(
-    case.get("recommended_action") == "ESCALATE"
-    for case in investigation_cases
-)
 
-queue_col1, queue_col2, queue_col3 = st.columns(3)
-
-queue_col1.metric("Investigation Cases", total_cases)
-queue_col2.metric("Review", review_cases)
-queue_col3.metric("Escalated", escalated_cases)
+# Assign stable display references before applying filters.
+case_references = {
+    case["run_id"]: f"INV-{index:04d}"
+    for index, case in enumerate(investigation_cases, start=1)
+}
 
 
-# --------------------------------------------------
-# Filters
-# --------------------------------------------------
+# ==================================================
+# FILTERS
+# ==================================================
 
-st.divider()
-
-filter_col1, filter_col2 = st.columns(2)
+filter_col1, filter_col2 = st.columns(2, gap="small")
 
 with filter_col1:
+
     action_filter = st.selectbox(
-        "Recommended Action",
-        ["ALL", "REVIEW", "ESCALATE"],
+        "Rekomendasi Tindak Lanjut",
+        ["Semua", "Perlu Ditinjau", "Prioritas Investigasi"],
     )
 
 with filter_col2:
+
     risk_filter = st.selectbox(
-        "Risk Level",
-        ["ALL", "LOW", "MEDIUM", "HIGH"],
+        "Tingkat Risiko",
+        ["Semua", "Rendah", "Sedang", "Tinggi"],
     )
 
 
+action_mapping = {
+    "Perlu Ditinjau": "REVIEW",
+    "Prioritas Investigasi": "ESCALATE",
+}
+
+risk_mapping = {
+    "Rendah": "LOW",
+    "Sedang": "MEDIUM",
+    "Tinggi": "HIGH",
+}
+
 filtered_cases = investigation_cases.copy()
 
-if action_filter != "ALL":
+if action_filter != "Semua":
+
     filtered_cases = [
-        case
-        for case in filtered_cases
-        if case["recommended_action"] == action_filter
+        case for case in filtered_cases
+        if case["recommended_action"] == action_mapping[action_filter]
     ]
 
-if risk_filter != "ALL":
+if risk_filter != "Semua":
+
     filtered_cases = [
-        case
-        for case in filtered_cases
-        if case["risk_level"] == risk_filter
+        case for case in filtered_cases
+        if case["risk_level"] == risk_mapping[risk_filter]
     ]
 
 
-# --------------------------------------------------
-# Queue table
-# --------------------------------------------------
+# ==================================================
+# QUEUE TABLE
+# ==================================================
 
 if not filtered_cases:
 
-    st.info("No cases match the selected filters.")
+    st.info(
+        "Tidak ada kasus yang sesuai dengan filter yang dipilih."
+    )
 
 else:
 
@@ -357,48 +655,54 @@ else:
     for case in filtered_cases:
 
         queue_data.append({
-            "Analysis ID": case["run_id"][:13] + "...",
-            "Timestamp": case.get("timestamp", "N/A"),
-            "Fraud Probability": format_probability(
-                case.get("fraud_probability")
+            "Referensi Kasus": case_references[case["run_id"]],
+            "Waktu Pemeriksaan": format_timestamp(case["timestamp"]),
+            "Probabilitas Fraud": format_probability(
+                case["fraud_probability"]
             ),
-            "Risk Level": case["risk_level"],
-            "Recommended Action": case["recommended_action"],
-            "Amount": format_amount(
-                case.get("transaction_amount")
+            "Tingkat Risiko": get_risk_label(case["risk_level"]),
+            "Rekomendasi": get_action_label(
+                case["recommended_action"]
+            ),
+            "Nominal Transaksi": format_amount(
+                case["transaction_amount"]
             ),
         })
 
-    queue_df = pd.DataFrame(queue_data)
+    with st.container(border=True):
 
-    st.dataframe(
-        queue_df,
-        width="stretch",
-        hide_index=True,
-    )
+        st.dataframe(
+            pd.DataFrame(queue_data),
+            width="stretch",
+            hide_index=True,
+        )
 
 
-# --------------------------------------------------
-# Investigation detail
-# --------------------------------------------------
+# ==================================================
+# INVESTIGATION DETAIL
+# ==================================================
 
 st.divider()
-
-st.subheader("2. Investigation Detail")
+st.subheader("Investigation Detail")
 
 if filtered_cases:
 
-    case_options = {
-        (
-            f'{case["run_id"][:13]}... | '
-            f'{case["recommended_action"]} | '
-            f'{format_probability(case.get("fraud_probability"))}'
-        ): case
-        for case in filtered_cases
-    }
+    case_options = {}
+
+    for case in filtered_cases:
+
+        reference = case_references[case["run_id"]]
+
+        label = (
+            f"{reference} · "
+            f"{get_action_label(case['recommended_action'])} · "
+            f"{format_timestamp(case['timestamp'])}"
+        )
+
+        case_options[label] = case
 
     selected_label = st.selectbox(
-        "Select an investigation case",
+        "Pilih kasus untuk melihat detail",
         list(case_options.keys()),
     )
 
@@ -409,160 +713,250 @@ if filtered_cases:
     decision = selected_case["decision"]
     analysis = selected_case["transaction_analysis"]
 
+    # --------------------------------------------------
+    # A. RINGKASAN PENILAIAN
+    # --------------------------------------------------
+
+    detail_col1, detail_col2, detail_col3 = st.columns(
+        3,
+        gap="small",
+    )
+
+    with detail_col1:
+
+        with st.container(border=True):
+
+            st.metric(
+                "Probabilitas Fraud",
+                format_probability(
+                    selected_case["fraud_probability"]
+                ),
+            )
+
+    with detail_col2:
+
+        with st.container(border=True):
+
+            st.metric(
+                "Tingkat Risiko",
+                get_risk_label(selected_case["risk_level"]),
+            )
+
+    with detail_col3:
+
+        with st.container(border=True):
+
+            st.markdown(
+                "<div style='font-size:.82rem;color:#a9b1ca'>"
+                "Rekomendasi Tindak Lanjut</div>",
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                f"**{get_action_label(selected_case['recommended_action'])}**"
+            )
+
     st.caption(
-        f'Analysis ID: {selected_case["run_id"]}'
+        f"Waktu pemeriksaan: "
+        f"{format_timestamp(selected_case['timestamp'])}"
     )
 
-    col1, col2, col3 = st.columns(3)
+    # --------------------------------------------------
+    # B. INFORMASI TRANSAKSI
+    # --------------------------------------------------
 
-    col1.metric(
-        "Fraud Probability",
-        format_probability(
-            selected_case.get("fraud_probability")
-        ),
+    detail_col1, detail_col2 = st.columns(
+        2,
+        gap="small",
     )
 
-    col2.metric(
-        "Risk Level",
-        selected_case["risk_level"],
-    )
+    with detail_col1:
 
-    col3.metric(
-        "Recommended Action",
-        selected_case["recommended_action"],
-    )
+        with st.container(border=True):
 
-    st.markdown("#### Decision Explanation")
+            st.markdown("#### Informasi Transaksi")
 
-    st.write(
-        "**ML Classification:**",
-        ml.get("classification", "N/A"),
-    )
+            st.caption("Nominal Transaksi")
 
-    st.write(
-        "**Risk Reason:**",
-        risk.get("risk_reason", "N/A"),
-    )
+            st.markdown(
+                f"### {format_amount(risk.get('transaction_amount'))}"
+            )
 
-    st.write(
-        "**Decision Reason:**",
-        decision.get("reason", "N/A"),
-    )
+            st.caption("Hasil Klasifikasi")
 
-    st.write(
-        "**Transaction Amount:**",
-        format_amount(
-            risk.get("transaction_amount")
-        ),
-    )
+            st.markdown(
+                f"**{get_classification_label(ml.get('classification'))}**"
+            )
 
-    if analysis.get("analysis_skipped"):
+    # --------------------------------------------------
+    # C. HASIL PENILAIAN
+    # --------------------------------------------------
+
+    with detail_col2:
+
+        with st.container(border=True):
+
+            st.markdown("#### Hasil Penilaian")
+
+            st.caption("Alasan Penilaian Risiko")
+
+            st.write(
+                get_reason_label(risk.get("risk_reason"))
+            )
+
+            st.caption("Alasan Rekomendasi")
+
+            st.write(
+                get_reason_label(decision.get("reason"))
+            )
+
+    # --------------------------------------------------
+    # D. INDIKATOR TRANSAKSI
+    # --------------------------------------------------
+
+    if analysis and not analysis.get("analysis_skipped"):
+
+        with st.container(border=True):
+
+            st.markdown("#### Indikator Transaksi")
+
+            indicator_col1, indicator_col2 = st.columns(2)
+
+            with indicator_col1:
+
+                st.caption("Kategori Nominal")
+
+                st.markdown(
+                    f"**{get_category_label(analysis.get('amount_category'))}**"
+                )
+
+            with indicator_col2:
+
+                st.caption("Kategori Waktu")
+
+                st.markdown(
+                    f"**{get_category_label(analysis.get('time_category'))}**"
+                )
+
+            st.divider()
+
+            st.markdown("**Indikator yang Ditemukan**")
+
+            render_indicators(
+                analysis.get("transaction_indicators")
+            )
+
+    elif analysis and analysis.get("analysis_skipped"):
 
         st.info(
-            "Transaction analysis was skipped: "
-            + str(analysis.get("reason", "No reason recorded."))
+            "Analisis karakteristik transaksi tidak dilakukan "
+            "pada pemeriksaan ini."
         )
 
-    elif analysis:
+    # --------------------------------------------------
+    # E. REKOMENDASI TINDAK LANJUT
+    # --------------------------------------------------
 
-        st.markdown("#### Transaction Analysis")
+    action = selected_case["recommended_action"]
 
-        st.write(
-            "**Amount Category:**",
-            analysis.get("amount_category", "N/A"),
+    with st.container(border=True):
+
+        st.markdown("#### Rekomendasi Tindak Lanjut")
+
+        if action == "ESCALATE":
+
+            st.error(
+                "Kasus ini direkomendasikan untuk mendapatkan "
+                "prioritas pemeriksaan lebih lanjut."
+            )
+
+        elif action == "REVIEW":
+
+            st.warning(
+                "Kasus ini memerlukan peninjauan lebih lanjut "
+                "sebelum keputusan berikutnya dibuat."
+            )
+
+        else:
+
+            st.success(
+                "Transaksi tidak memerlukan tindakan lanjutan "
+                "berdasarkan hasil pemeriksaan sistem."
+            )
+
+        st.caption(
+            "Hasil ini merupakan rekomendasi sistem berdasarkan "
+            "analisis risiko, bukan tindakan otomatis untuk "
+            "menyetujui, menolak, atau memblokir transaksi."
         )
 
-        st.write(
-            "**Time Category:**",
-            analysis.get("time_category", "N/A"),
-        )
-
-        st.write(
-            "**Transaction Indicators:**",
-            analysis.get("transaction_indicators", "N/A"),
-        )
+else:
 
     st.info(
-        "This investigation record represents an Agent analysis. "
-        "The recommended action is not an actual transaction "
-        "approval, rejection, or blocking operation."
+        "Pilih filter yang sesuai untuk melihat detail kasus."
     )
 
 
-# --------------------------------------------------
-# Audit trail
-# --------------------------------------------------
+# ==================================================
+# INVESTIGATION HISTORY
+# ==================================================
 
 st.divider()
+st.subheader("Investigation History")
 
-st.subheader("3. Agent Audit Trail")
+st.caption(
+    "Tahapan pemeriksaan yang dilakukan pada kasus terpilih."
+)
 
 if filtered_cases:
 
     selected_events = selected_case["events"]
 
-    st.caption(
-        "Event history for the selected Analysis ID."
-    )
-
-    audit_table = []
+    history_data = []
 
     for event in selected_events:
 
-        audit_table.append({
-            "Timestamp": event.get("timestamp", "N/A"),
-            "Event": event.get("event_type", "N/A"),
-            "Tool": event.get("tool_name", "N/A"),
-            "Status": event.get("status", "N/A"),
+        tool_name = event.get("tool_name", "")
+
+        history_data.append({
+            "Tahapan Pemeriksaan": get_event_label(tool_name),
+            "Waktu": format_timestamp(event.get("timestamp")),
+            "Status": (
+                "Berhasil"
+                if event.get("status") != "failed"
+                else "Tidak Berhasil"
+            ),
         })
 
-    st.dataframe(
-        pd.DataFrame(audit_table),
-        width="stretch",
-        hide_index=True,
-    )
+    with st.container(border=True):
 
-    with st.expander("View Raw Audit Events"):
+        if history_data:
 
-        for index, event in enumerate(
-            selected_events,
-            start=1,
-        ):
-
-            st.markdown(
-                f"**Event {index}: {event.get('tool_name')}**"
+            st.dataframe(
+                pd.DataFrame(history_data),
+                width="stretch",
+                hide_index=True,
             )
 
-            st.json(event)
+        else:
+
+            st.caption(
+                "Belum ada riwayat tahapan pemeriksaan."
+            )
 
 else:
 
     st.info(
-        "Select a case to inspect its audit trail."
+        "Pilih kasus untuk melihat riwayat pemeriksaannya."
     )
 
 
-# --------------------------------------------------
-# Data limitations
-# --------------------------------------------------
+# ==================================================
+# FOOTER
+# ==================================================
 
 st.divider()
 
-with st.expander("Investigation Data Notes"):
-
-    st.markdown(
-        """
-        - Each case is identified by its Agent `run_id`.
-        - The queue only includes completed REVIEW and ESCALATE decisions.
-        - Historical events without a `run_id` are excluded.
-        - The current audit log does not store a permanent transaction ID
-          or the complete original transaction features.
-        - This page provides investigation visibility, not case assignment
-          or case-resolution management.
-        """
-    )
-
 st.caption(
-    f"Audit records loaded: {len(audit_records):,} · "
-    f"Completed analyses: {len(cases):,}"
+    "CreditGuard AI · Fraud Investigation"
 )
