@@ -337,3 +337,75 @@ def run_agent(
             "escalate_threshold": escalate_threshold,
         },
     }
+
+
+def run_agent_with_assessment(
+    transaction,
+    threshold: float = 0.50,
+    analysis_trigger: float = 0.10,
+    review_threshold: float = 0.20,
+    escalate_threshold: float = 0.70,
+    assessment_timeout: int = 40,
+) -> dict:
+    """
+    Run the deterministic fraud-detection pipeline, then request a
+    separate Gemini assessment when the system pipeline succeeds.
+
+    The original run_agent() output is preserved under "system_result".
+    Gemini is decision support only and cannot modify the system decision.
+    """
+    system_result = run_agent(
+        transaction=transaction,
+        threshold=threshold,
+        analysis_trigger=analysis_trigger,
+        review_threshold=review_threshold,
+        escalate_threshold=escalate_threshold,
+    )
+
+    # Do not call Gemini when the deterministic pipeline fails.
+    if system_result.get("status") != "success":
+        return {
+            "status": "failed",
+            "agent": "CreditGuard AI",
+            "run_id": system_result.get("run_id"),
+            "system_result": system_result,
+            "agent_assessment": None,
+            "assessment_skipped": True,
+            "reason": "Agent assessment was skipped because the system pipeline failed.",
+        }
+
+    # Lazy import keeps the original deterministic pipeline independent
+    # from Gemini configuration and availability.
+    try:
+        from src.agent.llm.agent_reasoning import run_agent_assessment
+
+        assessment_result = run_agent_assessment(
+            agent_result=system_result,
+            timeout=assessment_timeout,
+        )
+    except Exception as error:
+        assessment_result = {
+            "status": "unavailable",
+            "agent": "CreditGuard AI Assistant",
+            "provider": "Google Gemini",
+            "run_id": system_result.get("run_id"),
+            "assessment": None,
+            "decision_modified": False,
+            "error": {
+                "type": type(error).__name__,
+                "message": str(error),
+            },
+            "fallback_message": (
+                "AI Agent Assessment belum tersedia. Hasil prediksi dan "
+                "keputusan deterministik CreditGuard AI tetap dapat digunakan."
+            ),
+        }
+
+    return {
+        "status": "success",
+        "agent": "CreditGuard AI",
+        "run_id": system_result.get("run_id"),
+        "system_result": system_result,
+        "agent_assessment": assessment_result,
+        "decision_modified": False,
+    }

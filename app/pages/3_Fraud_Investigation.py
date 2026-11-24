@@ -10,6 +10,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from src.agent.ui.assistant_panel import assistant_layout, render_assistant_panel
+
 
 st.set_page_config(
     page_title="CreditGuard AI | Fraud Investigation",
@@ -458,505 +460,528 @@ def render_indicators(value) -> None:
         st.write(display_value(value))
 
 
-# ==================================================
-# PAGE HEADER
-# ==================================================
+# Right-side AI Assistant layout
+main_col, assistant_col = assistant_layout("investigation")
 
-st.markdown(
-    '<div class="cg-eyebrow">MONITORING / INVESTIGATION</div>',
-    unsafe_allow_html=True,
-)
+with main_col:
+    # ==================================================
+    # PAGE HEADER
+    # ==================================================
 
-st.markdown(
-    """
-    <section class="cg-hero">
-        <div>
-            <div class="cg-hero-kicker">
-                CREDITGUARD AI · FRAUD ANALYTICS
+    st.markdown(
+        '<div class="cg-eyebrow">MONITORING / INVESTIGATION</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <section class="cg-hero">
+            <div>
+                <div class="cg-hero-kicker">
+                    CREDITGUARD AI · FRAUD ANALYTICS
+                </div>
+                <div class="cg-hero-title">Fraud Investigation</div>
+                <div class="cg-hero-copy">
+                    Tinjau transaksi mencurigakan, pahami tingkat risiko,
+                    dan periksa rekomendasi tindak lanjut.
+                </div>
             </div>
-            <div class="cg-hero-title">Fraud Investigation</div>
-            <div class="cg-hero-copy">
-                Tinjau transaksi mencurigakan, pahami tingkat risiko,
-                dan periksa rekomendasi tindak lanjut.
-            </div>
-        </div>
-        <div class="cg-hero-chip">INVESTIGATION CENTER</div>
-    </section>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ==================================================
-# LOAD DATA
-# ==================================================
-
-try:
-    audit_records = load_audit_records()
-
-except Exception:
-    st.error(
-        "Data pemeriksaan belum dapat dimuat. "
-        "Silakan coba kembali."
-    )
-    st.stop()
-
-
-if not audit_records:
-
-    st.info(
-        "Belum ada riwayat pemeriksaan. "
-        "Lakukan pemeriksaan transaksi melalui halaman "
-        "Transaction Monitoring terlebih dahulu."
-    )
-
-    st.stop()
-
-
-cases = build_investigation_cases(audit_records)
-
-if not cases:
-
-    st.info(
-        "Belum ada hasil pemeriksaan yang dapat ditampilkan."
-    )
-
-    st.stop()
-
-
-# ==================================================
-# INVESTIGATION OVERVIEW
-# ==================================================
-
-st.subheader("Investigation Overview")
-
-total_analyses = len(cases)
-
-allow_analyses = sum(
-    case["recommended_action"] == "ALLOW"
-    for case in cases
-)
-
-review_analyses = sum(
-    case["recommended_action"] == "REVIEW"
-    for case in cases
-)
-
-escalated_analyses = sum(
-    case["recommended_action"] == "ESCALATE"
-    for case in cases
-)
-
-overview_metrics = [
-    ("Total Pemeriksaan", total_analyses),
-    ("Tidak Memerlukan Tindakan", allow_analyses),
-    ("Perlu Ditinjau", review_analyses),
-    ("Prioritas Investigasi", escalated_analyses),
-]
-
-metric_cols = st.columns(4, gap="small")
-
-for col, (label, value) in zip(metric_cols, overview_metrics):
-
-    with col:
-        with st.container(border=True):
-            st.metric(label, f"{value:,}")
-
-
-# ==================================================
-# INVESTIGATION QUEUE
-# ==================================================
-
-st.divider()
-st.subheader("Investigation Queue")
-
-investigation_cases = [
-    case
-    for case in cases
-    if case["recommended_action"] in ["REVIEW", "ESCALATE"]
-]
-
-st.caption(
-    "Daftar transaksi yang membutuhkan peninjauan "
-    "atau pemeriksaan lebih lanjut."
-)
-
-
-# Assign stable display references before applying filters.
-case_references = {
-    case["run_id"]: f"INV-{index:04d}"
-    for index, case in enumerate(investigation_cases, start=1)
-}
-
-
-# ==================================================
-# FILTERS
-# ==================================================
-
-filter_col1, filter_col2 = st.columns(2, gap="small")
-
-with filter_col1:
-
-    action_filter = st.selectbox(
-        "Rekomendasi Tindak Lanjut",
-        ["Semua", "Perlu Ditinjau", "Prioritas Investigasi"],
-    )
-
-with filter_col2:
-
-    risk_filter = st.selectbox(
-        "Tingkat Risiko",
-        ["Semua", "Rendah", "Sedang", "Tinggi"],
+            <div class="cg-hero-chip">INVESTIGATION CENTER</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
     )
 
 
-action_mapping = {
-    "Perlu Ditinjau": "REVIEW",
-    "Prioritas Investigasi": "ESCALATE",
-}
+    # ==================================================
+    # LOAD DATA
+    # ==================================================
 
-risk_mapping = {
-    "Rendah": "LOW",
-    "Sedang": "MEDIUM",
-    "Tinggi": "HIGH",
-}
+    try:
+        audit_records = load_audit_records()
 
-filtered_cases = investigation_cases.copy()
-
-if action_filter != "Semua":
-
-    filtered_cases = [
-        case for case in filtered_cases
-        if case["recommended_action"] == action_mapping[action_filter]
-    ]
-
-if risk_filter != "Semua":
-
-    filtered_cases = [
-        case for case in filtered_cases
-        if case["risk_level"] == risk_mapping[risk_filter]
-    ]
-
-
-# ==================================================
-# QUEUE TABLE
-# ==================================================
-
-if not filtered_cases:
-
-    st.info(
-        "Tidak ada kasus yang sesuai dengan filter yang dipilih."
-    )
-
-else:
-
-    queue_data = []
-
-    for case in filtered_cases:
-
-        queue_data.append({
-            "Referensi Kasus": case_references[case["run_id"]],
-            "Waktu Pemeriksaan": format_timestamp(case["timestamp"]),
-            "Probabilitas Fraud": format_probability(
-                case["fraud_probability"]
-            ),
-            "Tingkat Risiko": get_risk_label(case["risk_level"]),
-            "Rekomendasi": get_action_label(
-                case["recommended_action"]
-            ),
-            "Nominal Transaksi": format_amount(
-                case["transaction_amount"]
-            ),
-        })
-
-    with st.container(border=True):
-
-        st.dataframe(
-            pd.DataFrame(queue_data),
-            width="stretch",
-            hide_index=True,
+    except Exception:
+        st.error(
+            "Data pemeriksaan belum dapat dimuat. "
+            "Silakan coba kembali."
         )
+        st.stop()
 
 
-# ==================================================
-# INVESTIGATION DETAIL
-# ==================================================
-
-st.divider()
-st.subheader("Investigation Detail")
-
-if filtered_cases:
-
-    case_options = {}
-
-    for case in filtered_cases:
-
-        reference = case_references[case["run_id"]]
-
-        label = (
-            f"{reference} · "
-            f"{get_action_label(case['recommended_action'])} · "
-            f"{format_timestamp(case['timestamp'])}"
-        )
-
-        case_options[label] = case
-
-    selected_label = st.selectbox(
-        "Pilih kasus untuk melihat detail",
-        list(case_options.keys()),
-    )
-
-    selected_case = case_options[selected_label]
-
-    ml = selected_case["ml_prediction"]
-    risk = selected_case["risk_assessment"]
-    decision = selected_case["decision"]
-    analysis = selected_case["transaction_analysis"]
-
-    # --------------------------------------------------
-    # A. RINGKASAN PENILAIAN
-    # --------------------------------------------------
-
-    detail_col1, detail_col2, detail_col3 = st.columns(
-        3,
-        gap="small",
-    )
-
-    with detail_col1:
-
-        with st.container(border=True):
-
-            st.metric(
-                "Probabilitas Fraud",
-                format_probability(
-                    selected_case["fraud_probability"]
-                ),
-            )
-
-    with detail_col2:
-
-        with st.container(border=True):
-
-            st.metric(
-                "Tingkat Risiko",
-                get_risk_label(selected_case["risk_level"]),
-            )
-
-    with detail_col3:
-
-        with st.container(border=True):
-
-            st.markdown(
-                "<div style='font-size:.82rem;color:#a9b1ca'>"
-                "Rekomendasi Tindak Lanjut</div>",
-                unsafe_allow_html=True,
-            )
-
-            st.markdown(
-                f"**{get_action_label(selected_case['recommended_action'])}**"
-            )
-
-    st.caption(
-        f"Waktu pemeriksaan: "
-        f"{format_timestamp(selected_case['timestamp'])}"
-    )
-
-    # --------------------------------------------------
-    # B. INFORMASI TRANSAKSI
-    # --------------------------------------------------
-
-    detail_col1, detail_col2 = st.columns(
-        2,
-        gap="small",
-    )
-
-    with detail_col1:
-
-        with st.container(border=True):
-
-            st.markdown("#### Informasi Transaksi")
-
-            st.caption("Nominal Transaksi")
-
-            st.markdown(
-                f"### {format_amount(risk.get('transaction_amount'))}"
-            )
-
-            st.caption("Hasil Klasifikasi")
-
-            st.markdown(
-                f"**{get_classification_label(ml.get('classification'))}**"
-            )
-
-    # --------------------------------------------------
-    # C. HASIL PENILAIAN
-    # --------------------------------------------------
-
-    with detail_col2:
-
-        with st.container(border=True):
-
-            st.markdown("#### Hasil Penilaian")
-
-            st.caption("Alasan Penilaian Risiko")
-
-            st.write(
-                get_reason_label(risk.get("risk_reason"))
-            )
-
-            st.caption("Alasan Rekomendasi")
-
-            st.write(
-                get_reason_label(decision.get("reason"))
-            )
-
-    # --------------------------------------------------
-    # D. INDIKATOR TRANSAKSI
-    # --------------------------------------------------
-
-    if analysis and not analysis.get("analysis_skipped"):
-
-        with st.container(border=True):
-
-            st.markdown("#### Indikator Transaksi")
-
-            indicator_col1, indicator_col2 = st.columns(2)
-
-            with indicator_col1:
-
-                st.caption("Kategori Nominal")
-
-                st.markdown(
-                    f"**{get_category_label(analysis.get('amount_category'))}**"
-                )
-
-            with indicator_col2:
-
-                st.caption("Kategori Waktu")
-
-                st.markdown(
-                    f"**{get_category_label(analysis.get('time_category'))}**"
-                )
-
-            st.divider()
-
-            st.markdown("**Indikator yang Ditemukan**")
-
-            render_indicators(
-                analysis.get("transaction_indicators")
-            )
-
-    elif analysis and analysis.get("analysis_skipped"):
+    if not audit_records:
 
         st.info(
-            "Analisis karakteristik transaksi tidak dilakukan "
-            "pada pemeriksaan ini."
+            "Belum ada riwayat pemeriksaan. "
+            "Lakukan pemeriksaan transaksi melalui halaman "
+            "Transaction Monitoring terlebih dahulu."
         )
 
-    # --------------------------------------------------
-    # E. REKOMENDASI TINDAK LANJUT
-    # --------------------------------------------------
+        st.stop()
 
-    action = selected_case["recommended_action"]
 
-    with st.container(border=True):
+    cases = build_investigation_cases(audit_records)
 
-        st.markdown("#### Rekomendasi Tindak Lanjut")
+    if not cases:
 
-        if action == "ESCALATE":
-
-            st.error(
-                "Kasus ini direkomendasikan untuk mendapatkan "
-                "prioritas pemeriksaan lebih lanjut."
-            )
-
-        elif action == "REVIEW":
-
-            st.warning(
-                "Kasus ini memerlukan peninjauan lebih lanjut "
-                "sebelum keputusan berikutnya dibuat."
-            )
-
-        else:
-
-            st.success(
-                "Transaksi tidak memerlukan tindakan lanjutan "
-                "berdasarkan hasil pemeriksaan sistem."
-            )
-
-        st.caption(
-            "Hasil ini merupakan rekomendasi sistem berdasarkan "
-            "analisis risiko, bukan tindakan otomatis untuk "
-            "menyetujui, menolak, atau memblokir transaksi."
+        st.info(
+            "Belum ada hasil pemeriksaan yang dapat ditampilkan."
         )
 
-else:
+        st.stop()
 
-    st.info(
-        "Pilih filter yang sesuai untuk melihat detail kasus."
+
+    # ==================================================
+    # INVESTIGATION OVERVIEW
+    # ==================================================
+
+    st.subheader("Investigation Overview")
+
+    total_analyses = len(cases)
+
+    allow_analyses = sum(
+        case["recommended_action"] == "ALLOW"
+        for case in cases
+    )
+
+    review_analyses = sum(
+        case["recommended_action"] == "REVIEW"
+        for case in cases
+    )
+
+    escalated_analyses = sum(
+        case["recommended_action"] == "ESCALATE"
+        for case in cases
+    )
+
+    overview_metrics = [
+        ("Total Pemeriksaan", total_analyses),
+        ("Tidak Memerlukan Tindakan", allow_analyses),
+        ("Perlu Ditinjau", review_analyses),
+        ("Prioritas Investigasi", escalated_analyses),
+    ]
+
+    metric_cols = st.columns(4, gap="small")
+
+    for col, (label, value) in zip(metric_cols, overview_metrics):
+
+        with col:
+            with st.container(border=True):
+                st.metric(label, f"{value:,}")
+
+
+    # ==================================================
+    # INVESTIGATION QUEUE
+    # ==================================================
+
+    st.divider()
+    st.subheader("Investigation Queue")
+
+    investigation_cases = [
+        case
+        for case in cases
+        if case["recommended_action"] in ["REVIEW", "ESCALATE"]
+    ]
+
+    st.caption(
+        "Daftar transaksi yang membutuhkan peninjauan "
+        "atau pemeriksaan lebih lanjut."
     )
 
 
-# ==================================================
-# INVESTIGATION HISTORY
-# ==================================================
+    # Assign stable display references before applying filters.
+    case_references = {
+        case["run_id"]: f"INV-{index:04d}"
+        for index, case in enumerate(investigation_cases, start=1)
+    }
 
-st.divider()
-st.subheader("Investigation History")
 
-st.caption(
-    "Tahapan pemeriksaan yang dilakukan pada kasus terpilih."
-)
+    # ==================================================
+    # FILTERS
+    # ==================================================
 
-if filtered_cases:
+    filter_col1, filter_col2 = st.columns(2, gap="small")
 
-    selected_events = selected_case["events"]
+    with filter_col1:
 
-    history_data = []
+        action_filter = st.selectbox(
+            "Rekomendasi Tindak Lanjut",
+            ["Semua", "Perlu Ditinjau", "Prioritas Investigasi"],
+        )
 
-    for event in selected_events:
+    with filter_col2:
 
-        tool_name = event.get("tool_name", "")
+        risk_filter = st.selectbox(
+            "Tingkat Risiko",
+            ["Semua", "Rendah", "Sedang", "Tinggi"],
+        )
 
-        history_data.append({
-            "Tahapan Pemeriksaan": get_event_label(tool_name),
-            "Waktu": format_timestamp(event.get("timestamp")),
-            "Status": (
-                "Berhasil"
-                if event.get("status") != "failed"
-                else "Tidak Berhasil"
-            ),
-        })
 
-    with st.container(border=True):
+    action_mapping = {
+        "Perlu Ditinjau": "REVIEW",
+        "Prioritas Investigasi": "ESCALATE",
+    }
 
-        if history_data:
+    risk_mapping = {
+        "Rendah": "LOW",
+        "Sedang": "MEDIUM",
+        "Tinggi": "HIGH",
+    }
+
+    filtered_cases = investigation_cases.copy()
+
+    if action_filter != "Semua":
+
+        filtered_cases = [
+            case for case in filtered_cases
+            if case["recommended_action"] == action_mapping[action_filter]
+        ]
+
+    if risk_filter != "Semua":
+
+        filtered_cases = [
+            case for case in filtered_cases
+            if case["risk_level"] == risk_mapping[risk_filter]
+        ]
+
+
+    # ==================================================
+    # QUEUE TABLE
+    # ==================================================
+
+    if not filtered_cases:
+
+        st.info(
+            "Tidak ada kasus yang sesuai dengan filter yang dipilih."
+        )
+
+    else:
+
+        queue_data = []
+
+        for case in filtered_cases:
+
+            queue_data.append({
+                "Referensi Kasus": case_references[case["run_id"]],
+                "Waktu Pemeriksaan": format_timestamp(case["timestamp"]),
+                "Probabilitas Fraud": format_probability(
+                    case["fraud_probability"]
+                ),
+                "Tingkat Risiko": get_risk_label(case["risk_level"]),
+                "Rekomendasi": get_action_label(
+                    case["recommended_action"]
+                ),
+                "Nominal Transaksi": format_amount(
+                    case["transaction_amount"]
+                ),
+            })
+
+        with st.container(border=True):
 
             st.dataframe(
-                pd.DataFrame(history_data),
+                pd.DataFrame(queue_data),
                 width="stretch",
                 hide_index=True,
             )
 
-        else:
 
-            st.caption(
-                "Belum ada riwayat tahapan pemeriksaan."
+    # ==================================================
+    # INVESTIGATION DETAIL
+    # ==================================================
+
+    st.divider()
+    st.subheader("Investigation Detail")
+
+    if filtered_cases:
+
+        case_options = {}
+
+        for case in filtered_cases:
+
+            reference = case_references[case["run_id"]]
+
+            label = (
+                f"{reference} · "
+                f"{get_action_label(case['recommended_action'])} · "
+                f"{format_timestamp(case['timestamp'])}"
             )
 
-else:
+            case_options[label] = case
 
-    st.info(
-        "Pilih kasus untuk melihat riwayat pemeriksaannya."
+        selected_label = st.selectbox(
+            "Pilih kasus untuk melihat detail",
+            list(case_options.keys()),
+        )
+
+        selected_case = case_options[selected_label]
+
+        ml = selected_case["ml_prediction"]
+        risk = selected_case["risk_assessment"]
+        decision = selected_case["decision"]
+        analysis = selected_case["transaction_analysis"]
+
+        # --------------------------------------------------
+        # A. RINGKASAN PENILAIAN
+        # --------------------------------------------------
+
+        detail_col1, detail_col2, detail_col3 = st.columns(
+            3,
+            gap="small",
+        )
+
+        with detail_col1:
+
+            with st.container(border=True):
+
+                st.metric(
+                    "Probabilitas Fraud",
+                    format_probability(
+                        selected_case["fraud_probability"]
+                    ),
+                )
+
+        with detail_col2:
+
+            with st.container(border=True):
+
+                st.metric(
+                    "Tingkat Risiko",
+                    get_risk_label(selected_case["risk_level"]),
+                )
+
+        with detail_col3:
+
+            with st.container(border=True):
+
+                st.markdown(
+                    "<div style='font-size:.82rem;color:#a9b1ca'>"
+                    "Rekomendasi Tindak Lanjut</div>",
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown(
+                    f"**{get_action_label(selected_case['recommended_action'])}**"
+                )
+
+        st.caption(
+            f"Waktu pemeriksaan: "
+            f"{format_timestamp(selected_case['timestamp'])}"
+        )
+
+        # --------------------------------------------------
+        # B. INFORMASI TRANSAKSI
+        # --------------------------------------------------
+
+        detail_col1, detail_col2 = st.columns(
+            2,
+            gap="small",
+        )
+
+        with detail_col1:
+
+            with st.container(border=True):
+
+                st.markdown("#### Informasi Transaksi")
+
+                st.caption("Nominal Transaksi")
+
+                st.markdown(
+                    f"### {format_amount(risk.get('transaction_amount'))}"
+                )
+
+                st.caption("Hasil Klasifikasi")
+
+                st.markdown(
+                    f"**{get_classification_label(ml.get('classification'))}**"
+                )
+
+        # --------------------------------------------------
+        # C. HASIL PENILAIAN
+        # --------------------------------------------------
+
+        with detail_col2:
+
+            with st.container(border=True):
+
+                st.markdown("#### Hasil Penilaian")
+
+                st.caption("Alasan Penilaian Risiko")
+
+                st.write(
+                    get_reason_label(risk.get("risk_reason"))
+                )
+
+                st.caption("Alasan Rekomendasi")
+
+                st.write(
+                    get_reason_label(decision.get("reason"))
+                )
+
+        # --------------------------------------------------
+        # D. INDIKATOR TRANSAKSI
+        # --------------------------------------------------
+
+        if analysis and not analysis.get("analysis_skipped"):
+
+            with st.container(border=True):
+
+                st.markdown("#### Indikator Transaksi")
+
+                indicator_col1, indicator_col2 = st.columns(2)
+
+                with indicator_col1:
+
+                    st.caption("Kategori Nominal")
+
+                    st.markdown(
+                        f"**{get_category_label(analysis.get('amount_category'))}**"
+                    )
+
+                with indicator_col2:
+
+                    st.caption("Kategori Waktu")
+
+                    st.markdown(
+                        f"**{get_category_label(analysis.get('time_category'))}**"
+                    )
+
+                st.divider()
+
+                st.markdown("**Indikator yang Ditemukan**")
+
+                render_indicators(
+                    analysis.get("transaction_indicators")
+                )
+
+        elif analysis and analysis.get("analysis_skipped"):
+
+            st.info(
+                "Analisis karakteristik transaksi tidak dilakukan "
+                "pada pemeriksaan ini."
+            )
+
+        # --------------------------------------------------
+        # E. REKOMENDASI TINDAK LANJUT
+        # --------------------------------------------------
+
+        action = selected_case["recommended_action"]
+
+        with st.container(border=True):
+
+            st.markdown("#### Rekomendasi Tindak Lanjut")
+
+            if action == "ESCALATE":
+
+                st.error(
+                    "Kasus ini direkomendasikan untuk mendapatkan "
+                    "prioritas pemeriksaan lebih lanjut."
+                )
+
+            elif action == "REVIEW":
+
+                st.warning(
+                    "Kasus ini memerlukan peninjauan lebih lanjut "
+                    "sebelum keputusan berikutnya dibuat."
+                )
+
+            else:
+
+                st.success(
+                    "Transaksi tidak memerlukan tindakan lanjutan "
+                    "berdasarkan hasil pemeriksaan sistem."
+                )
+
+            st.caption(
+                "Hasil ini merupakan rekomendasi sistem berdasarkan "
+                "analisis risiko, bukan tindakan otomatis untuk "
+                "menyetujui, menolak, atau memblokir transaksi."
+            )
+
+    else:
+
+        st.info(
+            "Pilih filter yang sesuai untuk melihat detail kasus."
+        )
+
+
+    # ==================================================
+    # INVESTIGATION HISTORY
+    # ==================================================
+
+    st.divider()
+    st.subheader("Investigation History")
+
+    st.caption(
+        "Tahapan pemeriksaan yang dilakukan pada kasus terpilih."
+    )
+
+    if filtered_cases:
+
+        selected_events = selected_case["events"]
+
+        history_data = []
+
+        for event in selected_events:
+
+            tool_name = event.get("tool_name", "")
+
+            history_data.append({
+                "Tahapan Pemeriksaan": get_event_label(tool_name),
+                "Waktu": format_timestamp(event.get("timestamp")),
+                "Status": (
+                    "Berhasil"
+                    if event.get("status") != "failed"
+                    else "Tidak Berhasil"
+                ),
+            })
+
+        with st.container(border=True):
+
+            if history_data:
+
+                st.dataframe(
+                    pd.DataFrame(history_data),
+                    width="stretch",
+                    hide_index=True,
+                )
+
+            else:
+
+                st.caption(
+                    "Belum ada riwayat tahapan pemeriksaan."
+                )
+
+    else:
+
+        st.info(
+            "Pilih kasus untuk melihat riwayat pemeriksaannya."
+        )
+
+
+    # ==================================================
+    # FOOTER
+    # ==================================================
+
+    st.divider()
+
+    st.caption(
+        "CreditGuard AI · Fraud Investigation"
     )
 
 
-# ==================================================
-# FOOTER
-# ==================================================
-
-st.divider()
-
-st.caption(
-    "CreditGuard AI · Fraud Investigation"
-)
+if assistant_col is not None:
+    with assistant_col:
+        _case = locals().get("selected_case")
+        _assistant_context = {
+            "page": "Fraud Investigation",
+            "selected_case": ({
+                "case_reference": case_references.get(_case.get("run_id"), "Selected case"),
+                "fraud_probability": _case.get("fraud_probability"),
+                "risk_level": _case.get("risk_level"),
+                "recommended_action": _case.get("recommended_action"),
+                "transaction_amount": _case.get("transaction_amount"),
+                "risk_reason": _case.get("risk_assessment", {}).get("risk_reason"),
+                "decision_reason": _case.get("decision", {}).get("reason"),
+                "transaction_analysis": _case.get("transaction_analysis", {}),
+            } if isinstance(_case, dict) else "Belum ada kasus yang dipilih"),
+        }
+        render_assistant_panel("investigation", _assistant_context)

@@ -7,7 +7,8 @@ import streamlit as st
 
 from src.utils import load_dataset_settings, load_dataset, resolve_dataset_path
 from src.model_inference import load_fraud_model
-from src.agent.orchestrator import run_agent
+from src.agent.orchestrator import run_agent_with_assessment
+from src.agent.ui.assistant_panel import assistant_layout, render_assistant_panel
 
 st.set_page_config(page_title="CreditGuard AI | Transaction Monitoring", page_icon="🛡️", layout="wide")
 
@@ -262,6 +263,26 @@ def generate_explanation(result: dict) -> dict:
     }
 
 
+def render_agent_assessment(assessment_result: dict | None) -> None:
+    """Show Gemini's separate assessment without changing system decisions."""
+    st.markdown("### AI Agent Assessment")
+
+    if not isinstance(assessment_result, dict):
+        st.info("Penilaian AI Agent belum tersedia. Hasil sistem tetap menjadi acuan.")
+        return
+
+    if assessment_result.get("status") == "success":
+        with st.container(border=True):
+            st.markdown(assessment_result.get("assessment", "Penilaian tidak berisi teks."))
+            st.caption("Penilaian pendukung dari Gemini; tidak mengubah hasil ML, tingkat risiko, atau rekomendasi sistem.")
+    else:
+        fallback = assessment_result.get(
+            "fallback_message",
+            "Penilaian AI Agent sedang tidak tersedia. Hasil sistem tetap dapat digunakan.",
+        )
+        st.warning(fallback)
+
+
 def render_result(result: dict) -> None:
     if result.get("status") != "success":
         st.error("Analisis belum berhasil diselesaikan. Silakan coba kembali atau hubungi administrator sistem.")
@@ -309,94 +330,144 @@ def render_result(result: dict) -> None:
     )
 
 
-# Page header
-st.title("Transaction Monitoring")
-st.caption("CreditGuard AI · Intelligent Financial Fraud Detection")
-st.markdown("Pilih transaksi untuk diperiksa dan dapatkan penilaian risiko beserta rekomendasi tindak lanjut.")
+# Right-side AI Assistant layout
+main_col, assistant_col = assistant_layout("monitoring")
 
-# Load model and configured dataset
-try:
-    expected_features = get_model_features()
-except Exception:
-    st.error("Layanan analisis belum dapat dimuat. Silakan hubungi administrator sistem.")
-    st.stop()
-
-settings = load_dataset_settings()
-dataset_path = resolve_dataset_path(settings)
-if dataset_path is None:
-    st.warning("Belum ada sumber transaksi yang aktif. Silakan minta administrator mengatur dataset melalui Settings & Dataset.")
-    st.stop()
-
-try:
-    dataset = load_dataset(dataset_path)
-except Exception:
-    st.error("Data transaksi tidak dapat dibuka. Silakan periksa konfigurasi dataset atau hubungi administrator.")
-    st.stop()
-
-if dataset.empty:
-    st.warning("Sumber data transaksi belum memiliki data.")
-    st.stop()
-
-missing = [feature for feature in expected_features if feature not in dataset.columns]
-if missing:
-    st.error("Struktur data belum sesuai dengan kebutuhan analisis. Silakan hubungi administrator sistem.")
-    st.stop()
-
-# Transaction selection
-st.markdown("### Select Transaction")
-id_col = find_column(dataset, ["Transaction ID", "Transaction_ID", "transactionid", "ID", "id"])
-options = list(range(len(dataset)))
-
-if id_col is not None:
-    ids = dataset[id_col].astype(str)
-    selected_row = st.selectbox(
-        "Find a transaction", options,
-        format_func=lambda index: ids.iloc[index],
-        key="monitoring_selected_row",
-        help="Pilih transaksi berdasarkan ID yang tersedia pada dataset.",
+with main_col:
+    # Page header — mengikuti hero header Dashboard Overview.
+    st.markdown(
+        '<div class="cg-eyebrow">TRANSACTION MONITORING / FRAUD DETECTION</div>',
+        unsafe_allow_html=True,
     )
-else:
-    selected_row = st.selectbox(
-        "Choose a transaction", options,
-        format_func=lambda index: f"Transaction {index + 1:06d}",
-        key="monitoring_selected_row",
-        help="ID transaksi tidak tersedia. Referensi ditampilkan berdasarkan urutan data.",
+    st.markdown(
+        """
+        <section class="cg-hero">
+          <div>
+            <div class="cg-hero-kicker">CREDITGUARD AI · FRAUD ANALYTICS</div>
+            <div class="cg-hero-title">Transaction Monitoring</div>
+            <div class="cg-hero-copy">
+              Monitor transaksi, tinjau estimasi risiko fraud, dan pahami rekomendasi tindak lanjut.
+            </div>
+          </div>
+          <div class="cg-hero-chip">TRANSACTION ANALYSIS</div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "Pilih transaksi untuk diperiksa dan dapatkan penilaian risiko beserta rekomendasi tindak lanjut."
     )
 
-render_transaction_details(dataset, int(selected_row))
-transaction_data = dataset.iloc[[int(selected_row)]].copy()
-
-# Run analysis
-st.markdown("### Fraud Detection")
-st.markdown("Jalankan pemeriksaan untuk mengetahui estimasi risiko dan rekomendasi tindakan terhadap transaksi yang dipilih.")
-
-if st.button("Analyze Transaction", type="primary", width="stretch"):
+    # Load model and configured dataset
     try:
-        prepared = prepare_transaction(transaction_data, expected_features)
-        with st.spinner("CreditGuard AI sedang memeriksa transaksi..."):
-            result = run_agent(
-                transaction=prepared,
-                threshold=DEFAULT_THRESHOLD,
-                analysis_trigger=DEFAULT_ANALYSIS_TRIGGER,
-                review_threshold=DEFAULT_REVIEW_THRESHOLD,
-                escalate_threshold=DEFAULT_ESCALATE_THRESHOLD,
-            )
-        st.session_state["last_agent_result"] = result
-        st.session_state["last_transaction_row"] = int(selected_row)
-        st.session_state["last_transaction_label"] = (
-            str(dataset.iloc[int(selected_row)][id_col]) if id_col is not None
-            else f"Transaction {int(selected_row) + 1:06d}"
-        )
+        expected_features = get_model_features()
     except Exception:
-        st.error("Transaksi belum dapat dianalisis. Pastikan data valid dan coba kembali.")
+        st.error("Layanan analisis belum dapat dimuat. Silakan hubungi administrator sistem.")
+        st.stop()
 
-# Show only the result for the currently selected transaction
-last_result = st.session_state.get("last_agent_result")
-last_row = st.session_state.get("last_transaction_row")
-if last_result is not None and last_row == int(selected_row):
-    st.divider()
-    st.markdown("### Transaction Assessment")
-    st.caption("Transaction: " + str(st.session_state.get("last_transaction_label", "Selected transaction")))
-    render_result(last_result)
-elif last_result is not None:
-    st.info("Pilih Analyze Transaction untuk memeriksa transaksi yang saat ini dipilih.")
+    settings = load_dataset_settings()
+    dataset_path = resolve_dataset_path(settings)
+    if dataset_path is None:
+        st.warning("Belum ada sumber transaksi yang aktif. Silakan minta administrator mengatur dataset melalui Settings & Dataset.")
+        st.stop()
+
+    try:
+        dataset = load_dataset(dataset_path)
+    except Exception:
+        st.error("Data transaksi tidak dapat dibuka. Silakan periksa konfigurasi dataset atau hubungi administrator.")
+        st.stop()
+
+    if dataset.empty:
+        st.warning("Sumber data transaksi belum memiliki data.")
+        st.stop()
+
+    missing = [feature for feature in expected_features if feature not in dataset.columns]
+    if missing:
+        st.error("Struktur data belum sesuai dengan kebutuhan analisis. Silakan hubungi administrator sistem.")
+        st.stop()
+
+    # Transaction selection
+    st.markdown("### Select Transaction")
+    id_col = find_column(dataset, ["Transaction ID", "Transaction_ID", "transactionid", "ID", "id"])
+    options = list(range(len(dataset)))
+
+    if id_col is not None:
+        ids = dataset[id_col].astype(str)
+        selected_row = st.selectbox(
+            "Find a transaction", options,
+            format_func=lambda index: ids.iloc[index],
+            key="monitoring_selected_row",
+            help="Pilih transaksi berdasarkan ID yang tersedia pada dataset.",
+        )
+    else:
+        selected_row = st.selectbox(
+            "Choose a transaction", options,
+            format_func=lambda index: f"Transaction {index + 1:06d}",
+            key="monitoring_selected_row",
+            help="ID transaksi tidak tersedia. Referensi ditampilkan berdasarkan urutan data.",
+        )
+
+    render_transaction_details(dataset, int(selected_row))
+    transaction_data = dataset.iloc[[int(selected_row)]].copy()
+
+    # Run analysis
+    st.markdown("### Fraud Detection")
+    st.markdown("Jalankan pemeriksaan untuk mengetahui estimasi risiko dan rekomendasi tindakan terhadap transaksi yang dipilih.")
+
+    if st.button("Analyze Transaction", type="primary", width="stretch"):
+        try:
+            prepared = prepare_transaction(transaction_data, expected_features)
+            with st.spinner("CreditGuard AI sedang memeriksa transaksi..."):
+                agent_response = run_agent_with_assessment(
+                    transaction=prepared,
+                    threshold=DEFAULT_THRESHOLD,
+                    analysis_trigger=DEFAULT_ANALYSIS_TRIGGER,
+                    review_threshold=DEFAULT_REVIEW_THRESHOLD,
+                    escalate_threshold=DEFAULT_ESCALATE_THRESHOLD,
+                    assessment_timeout=40,
+                )
+
+            # Keep the deterministic result separate from Gemini's assessment.
+            system_result = agent_response.get("system_result")
+            if not isinstance(system_result, dict):
+                system_result = agent_response
+
+            st.session_state["last_agent_result"] = system_result
+            st.session_state["last_agent_assessment"] = agent_response.get("agent_assessment")
+            st.session_state["last_agent_decision_modified"] = agent_response.get("decision_modified", False)
+            st.session_state["last_transaction_row"] = int(selected_row)
+            st.session_state["last_transaction_label"] = (
+                str(dataset.iloc[int(selected_row)][id_col]) if id_col is not None
+                else f"Transaction {int(selected_row) + 1:06d}"
+            )
+        except Exception:
+            st.error("Transaksi belum dapat dianalisis. Pastikan data valid dan coba kembali.")
+
+    # Show only the result for the currently selected transaction
+    last_result = st.session_state.get("last_agent_result")
+    last_row = st.session_state.get("last_transaction_row")
+    if last_result is not None and last_row == int(selected_row):
+        st.divider()
+        st.markdown("### Transaction Assessment")
+        st.caption("Transaction: " + str(st.session_state.get("last_transaction_label", "Selected transaction")))
+        render_result(last_result)
+        render_agent_assessment(st.session_state.get("last_agent_assessment"))
+    elif last_result is not None:
+        st.info("Pilih Analyze Transaction untuk memeriksa transaksi yang saat ini dipilih.")
+
+
+if assistant_col is not None:
+    with assistant_col:
+        _result = st.session_state.get("last_agent_result")
+        _assistant_context = {
+            "page": "Transaction Monitoring",
+            "selected_transaction": st.session_state.get("last_transaction_label", "Belum ada transaksi dianalisis"),
+            "analysis_status": _result.get("status") if isinstance(_result, dict) else "not_run",
+            "fraud_probability": (_result.get("ml_prediction", {}).get("fraud_probability") if isinstance(_result, dict) else None),
+            "risk_level": (_result.get("risk_assessment", {}).get("risk_level") if isinstance(_result, dict) else None),
+            "recommended_action": (_result.get("decision", {}).get("recommended_action") if isinstance(_result, dict) else None),
+            "transaction_analysis": (_result.get("transaction_analysis", {}) if isinstance(_result, dict) else None),
+            "agent_assessment": st.session_state.get("last_agent_assessment"),
+            "decision_modified": st.session_state.get("last_agent_decision_modified", False),
+        }
+        render_assistant_panel("monitoring", _assistant_context)
